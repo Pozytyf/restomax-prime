@@ -29,6 +29,11 @@ restaurantRouter.post(
   restaurantController.createCategory,
 );
 restaurantRouter.post(
+  '/media/upload-url',
+  requirePermission('menu:write'),
+  restaurantController.createImageUploadUrl,
+);
+restaurantRouter.post(
   '/menu/items',
   requirePermission('menu:write'),
   restaurantController.createMenuItem,
