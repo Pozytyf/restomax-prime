@@ -194,6 +194,7 @@ export class RestaurantRepository extends BaseRepository {
     priceXof: number;
     costPriceXof: number;
     optionsJson: string;
+    imageUrl?: string | null;
   }) {
     const db = getDb();
     const id = generateId('itm');
