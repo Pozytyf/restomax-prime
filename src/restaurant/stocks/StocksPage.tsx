@@ -12,6 +12,7 @@ import { RestaurantLayout } from '../RestaurantLayout';
 import { useAuth } from '../../app/providers/AuthProvider';
 import { apiFetch } from '../../services/api';
 import { useToast } from '../../components/Toast';
+import { TableSkeleton } from '../../components/LoadingSkeletons';
 import { formatDateTimeFr, formatFcfa, formatTimeFr } from '../../utils/format';
 import type {
   RestaurantNotification,
@@ -36,6 +37,7 @@ export function StocksPage() {
 
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [movements, setMovements] = useState<MovementRow[]>([]);
+  const [loading, setLoading] = useState(true);
   const [alertSettings, setAlertSettings] = useState<StockAlertSettings | null>(
     null,
   );
@@ -78,7 +80,8 @@ export function StocksPage() {
         setAlertSettings(a.settings);
         setRecentAlerts(a.recentAlerts);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -264,6 +267,13 @@ export function StocksPage() {
         </div>
       }
     >
+      {loading ? (
+        <TableSkeleton
+          rows={6}
+          columns={6}
+          testId="stocks-loading-skeleton"
+        />
+      ) : (
       <div className="space-y-6">
         {criticalItems.length > 0 && (
           <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -834,6 +844,7 @@ export function StocksPage() {
           </div>
         </div>
       </div>
+      )}
 
       {moveTarget && (
         <div className="fixed inset-0 z-50 bg-[#0B1220]/70 flex items-center justify-center p-4">

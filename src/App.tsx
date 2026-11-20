@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './app/providers/AuthProvider';
 import { ProtectedRoute } from './app/guards/ProtectedRoute';
 import { ToastProvider } from './components/Toast';
+import { ErrorBoundary, RouteErrorBoundary } from './components/ErrorBoundary';
 
 // Public Marketing Site
 import { HomePage } from './marketing/pages/HomePage';
@@ -57,10 +58,12 @@ function AppIndexRoute() {
 
 export default function App() {
   return (
-    <ToastProvider>
-      <AuthProvider>
-        <BrowserRouter>
-          <Routes>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AuthProvider>
+          <BrowserRouter>
+            <RouteErrorBoundary>
+              <Routes>
             {/* Public Showcase Routes */}
             <Route path="/" element={<HomePage />} />
             <Route path="/fonctionnalites" element={<FeaturesPage />} />
@@ -265,10 +268,12 @@ export default function App() {
               }
             />
 
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </AuthProvider>
-    </ToastProvider>
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </Routes>
+            </RouteErrorBoundary>
+          </BrowserRouter>
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }

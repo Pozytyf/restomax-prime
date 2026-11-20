@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import { RestaurantLayout } from '../RestaurantLayout';
 import { apiFetch } from '../../services/api';
 import { useToast } from '../../components/Toast';
+import { KdsBoardSkeleton } from '../../components/LoadingSkeletons';
 import { formatTimeFr, getOrderStatusLabel } from '../../utils/format';
 import { executeThermalPrint } from '../../utils/thermalPrint';
 import {
@@ -102,6 +103,7 @@ export function KitchenKdsPage() {
   const { t } = useTranslation();
   const { notify } = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
+  const [loading, setLoading] = useState(true);
   const [stationFilter, setStationFilter] = useState<KdsStationFilter>('ALL');
   const [statusFilter, setStatusFilter] = useState<KdsStatusFilter>('ALL');
   const [groupMode, setGroupMode] = useState<KdsGroupMode>('TIME');
@@ -117,7 +119,8 @@ export function KitchenKdsPage() {
         );
         setNowMs(Date.now());
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -426,7 +429,9 @@ export function KitchenKdsPage() {
           </div>
         </div>
 
-        {statusCounts.ALL === 0 ? (
+        {loading ? (
+          <KdsBoardSkeleton testId="kds-loading-skeleton" />
+        ) : statusCounts.ALL === 0 ? (
           <div className="bg-[var(--rm-surface)] rounded-xl border border-[var(--rm-border)] p-12 text-center text-sm text-[var(--rm-ink-muted)]">
             {t('kitchen.noPendingOrders')}
           </div>

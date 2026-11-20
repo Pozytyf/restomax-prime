@@ -62,6 +62,15 @@ export const fr = {
       CARD: 'Carte bancaire',
     },
   },
+  errorBoundary: {
+    title: 'Une erreur inattendue est survenue',
+    subtitle:
+      'Cette vue a rencontré un incident technique. Vos données enregistrées restent intactes — réessayez ou rechargez la page.',
+    detailsLabel: 'Détails techniques',
+    retry: 'Réessayer',
+    reload: 'Recharger la page',
+    goHome: 'Retour à l’accueil',
+  },
   header: {
     openNav: 'Ouvrir la navigation',
     closeMenu: 'Fermer le menu',
@@ -466,6 +475,7 @@ export const fr = {
     markServed: 'Marquer Servie',
     statusUpdated: 'Statut mis à jour.',
     statusUpdateError: 'Erreur mise à jour.',
+    emptyFiltered: 'Aucune commande ne correspond à ce filtre.',
   },
   floor: {
     title: 'Salle & Tables',

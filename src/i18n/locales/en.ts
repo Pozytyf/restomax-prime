@@ -62,6 +62,15 @@ export const en = {
       CARD: 'Card',
     },
   },
+  errorBoundary: {
+    title: 'An unexpected error occurred',
+    subtitle:
+      'This view encountered a runtime issue. Saved restaurant data remains safe — retry or reload the page.',
+    detailsLabel: 'Technical details',
+    retry: 'Try again',
+    reload: 'Reload page',
+    goHome: 'Back to home',
+  },
   header: {
     openNav: 'Open navigation',
     closeMenu: 'Close menu',
@@ -461,6 +470,7 @@ export const en = {
     markServed: 'Mark Served',
     statusUpdated: 'Status updated.',
     statusUpdateError: 'Failed to update status.',
+    emptyFiltered: 'No orders match this filter.',
   },
   floor: {
     title: 'Floor & Tables',

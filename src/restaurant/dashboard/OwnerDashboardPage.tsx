@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { RestaurantLayout } from '../RestaurantLayout';
 import { useAuth } from '../../app/providers/AuthProvider';
 import { apiFetch } from '../../services/api';
+import { DashboardSkeleton } from '../../components/LoadingSkeletons';
 import {
   ActiveOrdersWidget,
   DailyRevenueWidget,
@@ -178,14 +179,7 @@ export function OwnerDashboardPage() {
       }
     >
       {loading || !data ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((n) => (
-            <div
-              key={n}
-              className="h-40 rounded-xl bg-[var(--rm-surface)] border border-[var(--rm-border)] animate-pulse"
-            />
-          ))}
-        </div>
+        <DashboardSkeleton testId="dashboard-loading-skeleton" />
       ) : (
         <div className="space-y-6">
           {editMode && (

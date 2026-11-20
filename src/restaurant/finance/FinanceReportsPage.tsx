@@ -5,6 +5,10 @@ import { RestaurantLayout } from '../RestaurantLayout';
 import { apiFetch, getStoredToken } from '../../services/api';
 import { useToast } from '../../components/Toast';
 import {
+  CardsGridSkeleton,
+  TableSkeleton,
+} from '../../components/LoadingSkeletons';
+import {
   formatDateFr,
   formatFcfa,
   getPaymentMethodLabel,
@@ -35,6 +39,7 @@ export function FinanceReportsPage() {
   const { notify } = useToast();
   const [data, setData] = useState<FinanceData | null>(null);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [loading, setLoading] = useState(true);
   const [showExp, setShowExp] = useState(false);
   const [expForm, setExpForm] = useState({
     category: t('finance.defaultCategory'),
@@ -51,7 +56,8 @@ export function FinanceReportsPage() {
         setData(f);
         setPayments(p.payments);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -130,7 +136,13 @@ export function FinanceReportsPage() {
         </div>
       }
     >
-      {data && (
+      {loading && !data ? (
+        <div className="space-y-6" data-testid="finance-loading-skeleton">
+          <CardsGridSkeleton cards={4} />
+          <TableSkeleton rows={5} columns={5} />
+        </div>
+      ) : (
+        data && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[var(--rm-surface)] rounded-xl border border-[var(--rm-border)] p-5">
@@ -303,6 +315,7 @@ export function FinanceReportsPage() {
             </div>
           </div>
         </div>
+        )
       )}
     </RestaurantLayout>
   );
