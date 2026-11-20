@@ -581,7 +581,7 @@ export function KitchenKdsPage() {
                                       onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
                                       className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
                                     >
-                                      {line.prepStatus === 'PENDING' ? 'Démarrer' : line.prepStatus === 'PREPARING' ? 'Prêt' : line.prepStatus === 'READY' ? 'Servi' : 'Reprendre'}
+                                      {line.prepStatus === 'PENDING' ? t('kitchen.startPrep') : line.prepStatus === 'PREPARING' ? t('kitchen.markReady') : t('kitchen.servedBtn')}
                                     </button>
                                   </li>
                                 ))}
