@@ -95,13 +95,15 @@ export class PostgresSuperadminRepository {
 
   async updateRestaurantStatus(rid: string, status: string) {
     const now = new Date().toISOString();
-    await this.db('restaurants').where({ id: rid }).update(status === 'DELETED'
-      ? { status: 'DELETED', deleted_at: now }
-      : { status, deleted_at: null });
-    if (status === 'SUSPENDED' || status === 'DELETED') {
-      await this.db('sessions').where({ restaurant_id: rid }).whereNull('revoked_at')
-        .update({ revoked_at: now });
-    }
+    const patch = status === 'DELETED' ? { status: 'DELETED', deleted_at: now } : { status, deleted_at: null };
+    await this.db.transaction(async trx => {
+      await trx('restaurants').where({ id: rid }).update(patch);
+      await trx('tenants').where({ id: rid }).update(patch);
+      if (status === 'SUSPENDED' || status === 'DELETED') {
+        await trx('sessions').where({ restaurant_id: rid }).whereNull('revoked_at')
+          .update({ revoked_at: now });
+      }
+    });
   }
 
   findAllPlans() { return this.db('plans').select('*').orderBy('price_monthly_xof', 'asc'); }
