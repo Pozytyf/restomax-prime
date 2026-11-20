@@ -201,7 +201,7 @@ export class RestaurantRepository extends BaseRepository {
       `INSERT INTO menu_items (
         id, restaurant_id, category_id, name, description, price_xof, cost_price_xof,
         image_url, available, sort_order, options_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, 99, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 99, ?, ?)`,
     ).run(
       id,
       params.rid,
@@ -210,6 +210,7 @@ export class RestaurantRepository extends BaseRepository {
       params.description,
       params.priceXof,
       params.costPriceXof,
+      params.imageUrl || null,
       params.optionsJson,
       new Date().toISOString(),
     );
@@ -231,6 +232,7 @@ export class RestaurantRepository extends BaseRepository {
       priceXof?: number;
       name?: string;
       description?: string;
+      imageUrl?: string;
     },
   ) {
     const db = getDb();
@@ -253,6 +255,9 @@ export class RestaurantRepository extends BaseRepository {
       db.prepare(
         'UPDATE menu_items SET description = ? WHERE id = ? AND restaurant_id = ?',
       ).run(updates.description, itemId, rid);
+    }
+    if (updates.imageUrl !== undefined) {
+      db.prepare('UPDATE menu_items SET image_url = ? WHERE id = ? AND restaurant_id = ?').run(updates.imageUrl, itemId, rid);
     }
   }
 
