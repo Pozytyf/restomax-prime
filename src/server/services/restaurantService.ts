@@ -1265,8 +1265,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getStaff(rid: string) {
-    const rows = restaurantRepository.findStaffMembers(rid);
+  async getStaff(rid: string) {
+    const rows = isPostgresMode() ? await postgresRestaurantRepository.findStaffMembers(rid) : restaurantRepository.findStaffMembers(rid);
     const staff = rows.map((r) => ({
       ...r,
       customPermissions: JSON.parse(String(r.custom_permissions_json || '[]')),
@@ -1274,7 +1274,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { staff, roleCeilings: ROLE_PERMISSION_CEILING };
   }
 
-  createStaff(auth: AuthContext, body: Record<string, unknown>) {
+  async createStaff(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const { fullName, email, phone, role, password, customPermissions } =
       body || {};
@@ -1295,7 +1295,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const existing = restaurantRepository.findUserByEmail(cleanEmail);
+    const existing = isPostgresMode() ? await postgresRestaurantRepository.findUserByEmail(cleanEmail) : restaurantRepository.findUserByEmail(cleanEmail);
     if (existing) {
       throw new AppError(
         409,
@@ -1312,7 +1312,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       ? customPermissions.filter((p) => ceiling.includes(p))
       : [];
 
-    const { memberId, userId } = restaurantRepository.createStaffUserAndMember({
+    const created = isPostgresMode()
+      ? await postgresRestaurantRepository.createStaffUserAndMember({
+          rid, email: cleanEmail, passwordHash: await bcrypt.hash(pwd, 10),
+          fullName: fullName.trim(), phone: String(phone || '').trim() || null,
+          role: role as Role, customPermissions: safeCustom,
+        })
+      : restaurantRepository.createStaffUserAndMember({
       rid,
       email: cleanEmail,
       passwordHash: bcrypt.hashSync(pwd, 10),
@@ -1322,7 +1328,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       customPermissions: safeCustom,
     });
 
-    recordAudit(getDb(), {
+    const { memberId, userId } = created;
+    if (isPostgresMode()) await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'STAFF_CREATED', targetType: 'USER', targetId: userId, details: `${fullName.trim()} (${role})` });
+    else recordAudit(getDb(), {
       actorUserId: auth.userId,
       actorEmail: auth.email,
       actorRole: auth.role,
@@ -1336,13 +1344,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { id: memberId, userId };
   }
 
-  updateStaff(
+  async updateStaff(
     auth: AuthContext,
     memberId: string,
     body: Record<string, unknown>,
   ) {
     const rid = auth.restaurantId!;
-    const member = restaurantRepository.findMemberById(memberId, rid);
+    const member = isPostgresMode() ? await postgresRestaurantRepository.findMemberById(memberId, rid) : restaurantRepository.findMemberById(memberId, rid);
     if (!member) {
       throw new AppError(404, 'Membre introuvable.');
     }
@@ -1371,11 +1379,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       boundedPerms = customPermissions.filter((p) => ceiling.includes(p));
     }
 
-    restaurantRepository.updateStaffMember(member.id, rid, member.user_id, {
+    const updates = {
       status: validStatus,
       role: validRole,
       customPermissions: boundedPerms,
-    });
+    };
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateStaffMember(member.id, rid, member.user_id, updates);
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'STAFF_UPDATED', targetType: 'MEMBER', targetId: member.id, details: `status=${status || 'unchanged'} role=${role || 'unchanged'}` });
+      return;
+    }
+    restaurantRepository.updateStaffMember(member.id, rid, member.user_id, updates);
 
     recordAudit(getDb(), {
       actorUserId: auth.userId,
@@ -1389,15 +1403,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getCustomers(rid: string) {
+  async getCustomers(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findCustomers(rid);
     return restaurantRepository.findCustomers(rid);
   }
 
-  createCustomer(rid: string, body: Record<string, unknown>) {
+  async createCustomer(rid: string, body: Record<string, unknown>) {
     const { fullName, phone, email, preferences } = body || {};
     if (typeof fullName !== 'string' || typeof phone !== 'string') {
       throw new AppError(400, 'Nom et téléphone requis.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createCustomer({ rid, fullName: fullName.trim(), phone: phone.trim(), email: String(email || '').trim(), preferences: String(preferences || '').trim() });
     return restaurantRepository.createCustomer({
       rid,
       fullName: fullName.trim(),
@@ -1407,11 +1423,12 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getReservations(rid: string) {
+  async getReservations(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findReservations(rid);
     return restaurantRepository.findReservations(rid);
   }
 
-  createReservation(rid: string, body: Record<string, unknown>) {
+  async createReservation(rid: string, body: Record<string, unknown>) {
     const { customerName, customerPhone, partySize, reservedAt, tableId, notes } =
       body || {};
     if (
@@ -1421,6 +1438,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     ) {
       throw new AppError(400, 'Champs de réservation incomplets.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createReservation({ rid, customerName: customerName.trim(), customerPhone: customerPhone.trim(), partySize: Math.max(1, Number(partySize || 2)), reservedAt, tableId: tableId ? String(tableId) : null, notes: String(notes || '').trim() });
     return restaurantRepository.createReservation({
       rid,
       customerName: customerName.trim(),
@@ -1432,16 +1450,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  updateReservationStatus(rid: string, id: string, status: unknown) {
+  async updateReservationStatus(rid: string, id: string, status: unknown) {
     if (
       !['PENDING', 'CONFIRMED', 'SEATED', 'CANCELLED'].includes(String(status))
     ) {
       throw new AppError(400, 'Statut invalide.');
     }
-    restaurantRepository.updateReservationStatus(id, rid, String(status));
+    if (isPostgresMode()) await postgresRestaurantRepository.updateReservationStatus(id, rid, String(status));
+    else restaurantRepository.updateReservationStatus(id, rid, String(status));
   }
 
-  getFinanceSummary(rid: string) {
+  async getFinanceSummary(rid: string) {
     const {
       sales,
       todayDate,
@@ -1450,7 +1469,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       cogsRow,
       expenses,
       byMethod,
-    } = restaurantRepository.findFinanceSummary(rid);
+    } = isPostgresMode() ? await postgresRestaurantRepository.findFinanceSummary(rid) : restaurantRepository.findFinanceSummary(rid);
     const totalExpenses = expenses.reduce(
       (acc, e) => acc + Number(e.amountXof || 0),
       0,
@@ -1477,7 +1496,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  createExpense(rid: string, body: Record<string, unknown>) {
+  async createExpense(rid: string, body: Record<string, unknown>) {
     const { category, description, amountXof, expenseDate } = body || {};
     if (
       typeof category !== 'string' ||
@@ -1487,6 +1506,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     ) {
       throw new AppError(400, 'Dépense invalide.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createExpense({ rid, category: category.trim(), description: description.trim(), amountXof: Math.round(Number(amountXof)), expenseDate: expenseDate ? String(expenseDate) : undefined });
     return restaurantRepository.createExpense({
       rid,
       category: category.trim(),
@@ -1496,8 +1516,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  exportOrdersCsv(rid: string): string {
-    const rows = restaurantRepository.findOrdersForCsvExport(rid);
+  async exportOrdersCsv(rid: string): Promise<string> {
+    const rows = isPostgresMode() ? await postgresRestaurantRepository.findOrdersForCsvExport(rid) : restaurantRepository.findOrdersForCsvExport(rid);
     const header = 'Numero,Type,Client,Statut,Total_FCFA,Paye_FCFA,Date';
     const lines = rows.map(
       (r) =>
@@ -1506,8 +1526,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return [header, ...lines].join('\n');
   }
 
-  getSettings(rid: string) {
-    const { resto, sub } = restaurantRepository.findRestaurantSettings(rid);
+  async getSettings(rid: string) {
+    const { resto, sub } = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantSettings(rid) : restaurantRepository.findRestaurantSettings(rid);
     return {
       restaurant: {
         id: resto.id,
@@ -1537,7 +1557,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  updateSettings(auth: AuthContext, body: Record<string, unknown>) {
+  async updateSettings(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const {
       name,
@@ -1558,7 +1578,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       printerSettingsJson = JSON.stringify(parsePrinterSettings(JSON.stringify(printerSettings)));
     }
 
-    restaurantRepository.updateRestaurantSettings(rid, {
+    const settingsUpdate = {
       name: name ? String(name).trim() : null,
       phone: phone !== undefined ? String(phone).trim() : null,
       address: address !== undefined ? String(address).trim() : null,
@@ -1577,7 +1597,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         : undefined,
       paydunyaToken: paydunyaToken ? String(paydunyaToken) : undefined,
       printerSettingsJson,
-    });
+    };
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateRestaurantSettings(rid, settingsUpdate);
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'SETTINGS_UPDATED', targetType: 'RESTAURANT', targetId: rid });
+      return;
+    }
+    restaurantRepository.updateRestaurantSettings(rid, settingsUpdate);
 
     recordAudit(getDb(), {
       actorUserId: auth.userId,
@@ -1592,7 +1618,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async printEscposTicket(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
-    const { resto } = restaurantRepository.findRestaurantSettings(rid);
+    const { resto } = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantSettings(rid) : restaurantRepository.findRestaurantSettings(rid);
     const printer = parsePrinterSettings(resto.printerSettingsJson);
     const kind = body?.kind === 'KITCHEN' ? 'KITCHEN' : 'RECEIPT';
 
