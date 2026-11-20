@@ -3,16 +3,16 @@ import { superadminService } from '../services/superadminService.ts';
 import { handleControllerError } from '../services/errors.ts';
 
 export const superadminController = {
-  getDashboard(_req: Request, res: Response) {
+  async getDashboard(_req: Request, res: Response) {
     try {
-      const data = superadminService.getDashboard();
+      const data = await superadminService.getDashboard();
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement dashboard plateforme.');
     }
   },
 
-  listRestaurants(_req: Request, res: Response) {
+  async listRestaurants(_req: Request, res: Response) {
     try {
       const restaurants = superadminService.listRestaurants();
       res.json({ restaurants });
@@ -21,7 +21,7 @@ export const superadminController = {
     }
   },
 
-  createRestaurant(req: Request, res: Response) {
+  async createRestaurant(req: Request, res: Response) {
     try {
       const id = superadminService.createRestaurant(req.auth!, req.body || {});
       res.status(201).json({ id });
@@ -30,9 +30,9 @@ export const superadminController = {
     }
   },
 
-  updateRestaurantStatus(req: Request, res: Response) {
+  async updateRestaurantStatus(req: Request, res: Response) {
     try {
-      superadminService.updateRestaurantStatus(
+      await superadminService.updateRestaurantStatus(
         req.auth!,
         String(req.params.id),
         req.body || {},
@@ -43,7 +43,7 @@ export const superadminController = {
     }
   },
 
-  listPlans(_req: Request, res: Response) {
+  async listPlans(_req: Request, res: Response) {
     try {
       const plans = superadminService.listPlans();
       res.json({ plans });
@@ -52,7 +52,7 @@ export const superadminController = {
     }
   },
 
-  updatePlan(req: Request, res: Response) {
+  async updatePlan(req: Request, res: Response) {
     try {
       superadminService.updatePlan(
         req.auth!,
@@ -65,7 +65,7 @@ export const superadminController = {
     }
   },
 
-  listSubscriptions(_req: Request, res: Response) {
+  async listSubscriptions(_req: Request, res: Response) {
     try {
       const subscriptions = superadminService.listSubscriptions();
       res.json({ subscriptions });
@@ -74,7 +74,7 @@ export const superadminController = {
     }
   },
 
-  listInvoices(_req: Request, res: Response) {
+  async listInvoices(_req: Request, res: Response) {
     try {
       const invoices = superadminService.listInvoices();
       res.json({ invoices });
@@ -83,7 +83,7 @@ export const superadminController = {
     }
   },
 
-  markInvoicePaid(req: Request, res: Response) {
+  async markInvoicePaid(req: Request, res: Response) {
     try {
       superadminService.markInvoicePaid(req.auth!, String(req.params.id));
       res.json({ ok: true });
@@ -92,7 +92,7 @@ export const superadminController = {
     }
   },
 
-  listUsers(_req: Request, res: Response) {
+  async listUsers(_req: Request, res: Response) {
     try {
       const users = superadminService.listUsers();
       res.json({ users });
@@ -101,7 +101,7 @@ export const superadminController = {
     }
   },
 
-  updateUserStatus(req: Request, res: Response) {
+  async updateUserStatus(req: Request, res: Response) {
     try {
       superadminService.updateUserStatus(
         req.auth!,
@@ -114,7 +114,7 @@ export const superadminController = {
     }
   },
 
-  listTickets(_req: Request, res: Response) {
+  async listTickets(_req: Request, res: Response) {
     try {
       const data = superadminService.listTicketsAndLeads();
       res.json(data);
@@ -123,7 +123,7 @@ export const superadminController = {
     }
   },
 
-  replyToTicket(req: Request, res: Response) {
+  async replyToTicket(req: Request, res: Response) {
     try {
       superadminService.replyToTicket(
         req.auth!,
@@ -136,7 +136,7 @@ export const superadminController = {
     }
   },
 
-  listAuditLogs(_req: Request, res: Response) {
+  async listAuditLogs(_req: Request, res: Response) {
     try {
       const logs = superadminService.listAuditLogs();
       res.json({ logs });
@@ -145,7 +145,7 @@ export const superadminController = {
     }
   },
 
-  getSettings(_req: Request, res: Response) {
+  async getSettings(_req: Request, res: Response) {
     try {
       const settings = superadminService.getPlatformSettings();
       res.json({ settings });
@@ -154,7 +154,7 @@ export const superadminController = {
     }
   },
 
-  updateSettings(req: Request, res: Response) {
+  async updateSettings(req: Request, res: Response) {
     try {
       superadminService.updatePlatformSettings(req.auth!, req.body || {});
       res.json({ ok: true });
