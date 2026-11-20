@@ -3,16 +3,16 @@ import { restaurantService } from '../services/restaurantService.ts';
 import { handleControllerError } from '../services/errors.ts';
 
 export const restaurantController = {
-  getDashboard(req: Request, res: Response) {
+  async getDashboard(req: Request, res: Response) {
     try {
-      const data = restaurantService.getDashboard(req.auth!.restaurantId!);
+      const data = await restaurantService.getDashboard(req.auth!.restaurantId!);
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement dashboard.');
     }
   },
 
-  getMenu(req: Request, res: Response) {
+  async getMenu(req: Request, res: Response) {
     try {
       const menu = restaurantService.getMenu(req.auth!.restaurantId!);
       res.json(menu);
@@ -21,7 +21,7 @@ export const restaurantController = {
     }
   },
 
-  createCategory(req: Request, res: Response) {
+  async createCategory(req: Request, res: Response) {
     try {
       const category = restaurantService.createCategory(
         req.auth!.restaurantId!,
@@ -33,7 +33,7 @@ export const restaurantController = {
     }
   },
 
-  createMenuItem(req: Request, res: Response) {
+  async createMenuItem(req: Request, res: Response) {
     try {
       const id = restaurantService.createMenuItem(req.auth!, req.body || {});
       res.status(201).json({ id });
@@ -42,9 +42,9 @@ export const restaurantController = {
     }
   },
 
-  updateMenuItem(req: Request, res: Response) {
+  async updateMenuItem(req: Request, res: Response) {
     try {
-      restaurantService.updateMenuItem(
+      await restaurantService.updateMenuItem(
         req.auth!.restaurantId!,
         String(req.params.id),
         req.body || {},
@@ -55,7 +55,7 @@ export const restaurantController = {
     }
   },
 
-  getRecipes(req: Request, res: Response) {
+  async getRecipes(req: Request, res: Response) {
     try {
       const menuItemId =
         typeof req.query.menuItemId === 'string' ? req.query.menuItemId : undefined;
@@ -69,7 +69,7 @@ export const restaurantController = {
     }
   },
 
-  updateMenuItemRecipe(req: Request, res: Response) {
+  async updateMenuItemRecipe(req: Request, res: Response) {
     try {
       const recipes = restaurantService.updateMenuItemRecipe(
         req.auth!,
