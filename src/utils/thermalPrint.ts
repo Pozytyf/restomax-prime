@@ -156,29 +156,26 @@ function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm', l
   frame.style.width = '0';
   frame.style.height = '0';
   frame.style.border = '0';
-  frame.onload = () => {
-    const print = () => window.setTimeout(() => {
-      frame.contentWindow?.focus();
-      frame.contentWindow?.print();
-    }, 100);
-    const logo = frame.contentDocument?.querySelector('img');
-    if (logo && !logo.complete) {
-      logo.addEventListener('load', print, { once: true });
-      logo.addEventListener('error', print, { once: true });
-    } else {
-      print();
-    }
-  };
   document.body.appendChild(frame);
   const doc = frame.contentDocument;
   if (!doc) throw new Error('Impossible de préparer le document à imprimer.');
+  let printScheduled = false;
+  const print = () => {
+    if (printScheduled) return;
+    printScheduled = true;
+    window.setTimeout(() => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    }, 100);
+  };
   const style = doc.createElement('style');
   style.textContent = '@page { size: ' + paperWidth + ' auto; margin: 2mm; } body { margin: 0; width: ' + paperWidth + '; color: #000; background: #fff; } pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11pt/1.35 monospace; }';
   const pre = doc.createElement('pre');
   pre.textContent = previewText;
   doc.head.appendChild(style);
+  let logo: HTMLImageElement | null = null;
   if (logoUrl) {
-    const logo = doc.createElement('img');
+    logo = doc.createElement('img');
     logo.src = logoUrl;
     logo.alt = 'Logo du restaurant';
     logo.style.display = 'block';
@@ -186,13 +183,17 @@ function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm', l
     logo.style.maxHeight = '22mm';
     logo.style.objectFit = 'contain';
     logo.style.margin = '0 auto 3mm';
+    logo.addEventListener('load', print, { once: true });
+    logo.addEventListener('error', print, { once: true });
     doc.body.appendChild(logo);
   }
   doc.body.appendChild(pre);
   doc.close();
+  if (!logo || logo.complete) print();
   frame.contentWindow?.addEventListener('afterprint', () => frame.remove(), { once: true });
   window.setTimeout(() => frame.remove(), 60000);
 }
+
 export async function executeThermalPrint(
   payload: ThermalPrintPayload,
 ): Promise<ThermalPrintResponse & { dispatchedVia: 'NETWORK' | 'WEB_SERIAL' | 'BROWSER' }> {
