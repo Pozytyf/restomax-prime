@@ -37,6 +37,40 @@ export default defineConfig(() => {
         '@': path.resolve(currentDir, '.'),
       },
     },
+    build: {
+      target: 'es2022',
+      sourcemap: false,
+      chunkSizeWarningLimit: 700,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (
+              id.includes('/node_modules/react/') ||
+              id.includes('/node_modules/react-dom/') ||
+              id.includes('/node_modules/react-router')
+            ) {
+              return 'react-vendor';
+            }
+            if (id.includes('/node_modules/@supabase/')) {
+              return 'supabase-vendor';
+            }
+            if (
+              id.includes('/node_modules/i18next') ||
+              id.includes('/node_modules/react-i18next')
+            ) {
+              return 'i18n-vendor';
+            }
+            if (
+              id.includes('/node_modules/lucide-react') ||
+              id.includes('/node_modules/motion')
+            ) {
+              return 'ui-vendor';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.

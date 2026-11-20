@@ -147,10 +147,38 @@ test('4. Full Knex migration 0004 runs cleanly and Vercel config + api/index.ts 
   assert.equal(fs.existsSync(apiEntryPath), true);
 
   const vercelConfig = JSON.parse(fs.readFileSync(vercelJsonPath, 'utf8')) as {
-    rewrites: Array<{ source: string; destination: string }>;
+    framework: string;
     outputDirectory: string;
+    env: Record<string, string>;
+    functions: Record<
+      string,
+      { memory?: number; maxDuration?: number; includeFiles?: string }
+    >;
+    headers: Array<{
+      source: string;
+      headers: Array<{ key: string; value: string }>;
+    }>;
+    rewrites: Array<{ source: string; destination: string }>;
   };
+  assert.equal(vercelConfig.framework, 'vite');
   assert.equal(vercelConfig.outputDirectory, 'dist');
+  assert.equal(vercelConfig.env.NODE_ENV, 'production');
+  assert.equal(vercelConfig.env.DATABASE_CLIENT, 'pg');
+  assert.equal(vercelConfig.env.DATABASE_SSL, 'true');
+  assert.equal(vercelConfig.env.DB_POOL_MIN, '0');
+  assert.equal(vercelConfig.env.DB_POOL_MAX, '5');
+  assert.equal(
+    vercelConfig.functions['api/index.ts']?.includeFiles,
+    'src/server/migrations/**',
+  );
+  assert.equal(
+    vercelConfig.headers.some((h) => h.source === '/assets/(.*)'),
+    true,
+  );
+  assert.equal(
+    vercelConfig.headers.some((h) => h.source === '/api/(.*)'),
+    true,
+  );
   assert.equal(
     vercelConfig.rewrites.some(
       (r) => r.source === '/api/(.*)' && r.destination === '/api/index.ts',

@@ -76,14 +76,16 @@ export function getPostgresPool(): Pool | null {
     return null;
   }
   if (!cachedPgPool) {
+    const isServerless = Boolean(process.env.VERCEL);
     const useSsl =
       process.env.DATABASE_SSL === 'true' || isSupabaseDbUrl(cfg.dbUrl);
     cachedPgPool = new Pool({
       connectionString: cfg.dbUrl,
       ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-      max: Number(process.env.DB_POOL_MAX || 10),
-      idleTimeoutMillis: 15_000,
+      max: Number(process.env.DB_POOL_MAX || (isServerless ? 5 : 10)),
+      idleTimeoutMillis: isServerless ? 10_000 : 15_000,
       connectionTimeoutMillis: 10_000,
+      allowExitOnIdle: isServerless,
     });
     cachedPgPool.on('error', (err) => {
       console.error('[Supabase/PG Pool Error]', err);
