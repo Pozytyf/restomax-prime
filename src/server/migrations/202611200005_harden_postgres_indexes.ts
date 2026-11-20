@@ -9,9 +9,9 @@ import type { Knex } from 'knex';
 export async function up(knex: Knex): Promise<void> {
   if (knex.client.config.client !== 'pg') return;
 
-  await knex.raw('ALTER FUNCTION public.current_tenant_id() SET search_path = pg_catalog, public, pg_temp');
-  await knex.raw('ALTER FUNCTION public.is_superadmin() SET search_path = pg_catalog, public, pg_temp');
-  await knex.raw('ALTER FUNCTION public.sync_restaurant_to_tenant() SET search_path = pg_catalog, public, pg_temp');
+  await knex.raw('ALTER FUNCTION public.current_tenant_id() SET search_path = ''');
+  await knex.raw('ALTER FUNCTION public.is_superadmin() SET search_path = ''');
+  await knex.raw('ALTER FUNCTION public.sync_restaurant_to_tenant() SET search_path = ''');
 
   const indexes: Array<[string, string, string]> = [
     ['customers', 'restaurant_id', 'idx_customers_restaurant_id'],
