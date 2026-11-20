@@ -196,9 +196,9 @@ export async function executeThermalPrint(
   let printPayload = payload;
   if (payload.kind === 'RECEIPT') {
     try {
-      const settings = await apiFetch<{ restaurant: { logoUrl?: string | null } }>('/api/restaurant/settings');
+      const settings = await apiFetch<{ restaurant: { logoUrl?: string | null; printerSettings?: { paperWidth?: '58mm' | '80mm' } } }>('/api/restaurant/settings');
       if (settings.restaurant.logoUrl) {
-        const logoRasterBase64 = await buildLogoRasterBase64(settings.restaurant.logoUrl, '80mm');
+        const logoRasterBase64 = await buildLogoRasterBase64(settings.restaurant.logoUrl, settings.restaurant.printerSettings?.paperWidth || '80mm');
         if (logoRasterBase64) printPayload = { ...payload, logoRasterBase64 };
       }
     } catch {
