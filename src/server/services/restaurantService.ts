@@ -1707,7 +1707,23 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       const raster = body.logoRasterBase64;
       if (raster.length <= 400_000 && /^[A-Za-z0-9+/]*={0,2}$/.test(raster)) {
         const rasterBytes = Buffer.from(raster, 'base64');
-        if (rasterBytes.length > 13 && rasterBytes.length <= 300_000) {
+        const bytesPerRow = rasterBytes[9] + (rasterBytes[10] << 8);
+        const rasterHeight = rasterBytes[11] + (rasterBytes[12] << 8);
+        const hasRasterHeader =
+          rasterBytes.length > 14 &&
+          rasterBytes[0] === 0x1b && rasterBytes[1] === 0x40 &&
+          rasterBytes[2] === 0x1b && rasterBytes[3] === 0x61 &&
+          rasterBytes[4] === 0x01 && rasterBytes[5] === 0x1d &&
+          rasterBytes[6] === 0x76 && rasterBytes[7] === 0x30 &&
+          rasterBytes[8] === 0x00;
+        const maxBytesPerRow = printer.paperWidth === '58mm' ? 48 : 72;
+        if (
+          hasRasterHeader &&
+          bytesPerRow > 0 && bytesPerRow <= maxBytesPerRow &&
+          rasterHeight > 0 && rasterHeight <= 150 &&
+          rasterBytes.length === 14 + bytesPerRow * rasterHeight &&
+          rasterBytes[rasterBytes.length - 1] === 0x0a
+        ) {
           printBytes = new Uint8Array(Buffer.concat([rasterBytes, Buffer.from(formatted.bytes)]));
         }
       }
