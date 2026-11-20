@@ -160,6 +160,6 @@ export async function executeThermalPrint(
     return { ...res, dispatchedVia: 'WEB_SERIAL' };
   }
 
-  printThermalPreview(res.previewText, res.paperWidth);
+  printThermalPreview(res.previewText, res.paperWidth, payload.kind === 'RECEIPT' ? res.logoUrl : null);
   return { ...res, dispatchedVia: 'BROWSER' };
 }
