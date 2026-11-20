@@ -59,8 +59,8 @@ export class PostgresSuperadminRepository {
   }
 
   async findPlanByCodeOrDefault(planCode: string) {
-    return (await this.db('plans').select('id', 'trial_days').where({ code: planCode }).first())
-      || this.db('plans').select('id', 'trial_days').orderBy('created_at', 'asc').first();
+    return (await this.db('plans').select('id', 'trial_days').where({ code: planCode, active: 1 }).first())
+      || this.db('plans').select('id', 'trial_days').where({ active: 1 }).orderBy('created_at', 'asc').first();
   }
 
   async createRestaurantAdmin(params: {
