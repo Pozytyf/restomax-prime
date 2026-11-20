@@ -258,7 +258,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     return;
   }
   try {
-    const usePostgres = ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
+    const usePostgres = ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && process.env.RESTOMAX_POSTGRES_CUTOVER === 'true' && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
     const ctx = usePostgres
       ? await resolvePostgresAuthContext(token)
       : resolveAuthContext(getDb(), token);
