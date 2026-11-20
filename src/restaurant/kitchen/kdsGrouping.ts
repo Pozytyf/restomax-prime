@@ -72,7 +72,9 @@ export function filterKdsOrders(
     const visibleItems =
       stationFilter === 'ALL'
         ? order.items
-        : order.items.filter((i) => i.station === stationFilter);
+        : order.items.filter(
+            (item) => String(item.station || '').trim().toUpperCase() === stationFilter,
+          );
     if (visibleItems.length > 0) {
       filtered.push({ order, visibleItems });
     }
