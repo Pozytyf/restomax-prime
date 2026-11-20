@@ -169,6 +169,10 @@ export function KitchenKdsPage() {
     }
   };
 
+  const updateVisibleItemsPrepStatus = async (orderId: string, visibleItems: OrderItem[], prepStatus: string) => {
+    await Promise.all(visibleItems.map((item) => updateItemPrepStatus(orderId, item.id, prepStatus)));
+  };
+
   const getNextItemPrepStatus = (status: OrderItem['prepStatus']) =>
     status === 'PENDING' ? 'PREPARING' :
     status === 'PREPARING' ? 'READY' :
@@ -887,7 +891,7 @@ export function KitchenKdsPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void updateStatus(ord.id, 'IN_PREPARATION')
+                                    void updateVisibleItemsPrepStatus(ord.id, visibleItems, 'PREPARING')
                                   }
                                   className="px-3 py-1.5 rounded-lg bg-[#FF8738] hover:bg-[#F07322] text-white text-xs font-semibold cursor-pointer"
                                 >
@@ -898,7 +902,7 @@ export function KitchenKdsPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void updateStatus(ord.id, 'READY')
+                                    void updateVisibleItemsPrepStatus(ord.id, visibleItems, 'READY')
                                   }
                                   className="px-3 py-1.5 rounded-lg bg-[#14B8A6] hover:opacity-90 text-white text-xs font-semibold cursor-pointer"
                                 >
@@ -909,7 +913,7 @@ export function KitchenKdsPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void updateStatus(ord.id, 'SERVED')
+                                    void updateVisibleItemsPrepStatus(ord.id, visibleItems, 'SERVED')
                                   }
                                   className="px-3 py-1.5 rounded-lg bg-[#182333] hover:bg-[#223044] dark:bg-[#223044] dark:hover:bg-[#2D4059] text-white text-xs font-semibold cursor-pointer"
                                 >
@@ -922,6 +926,8 @@ export function KitchenKdsPage() {
                       </div>
                     </div>
 
+                    {/* Batch actions are only available in the combined overview. */}
+                    {fixedStation === 'ALL' && (
                     {/* Batch Action Bar when group has multiple orders */}
                     {grp.orders.length > 1 &&
                       (pendingIds.length > 0 ||
@@ -972,6 +978,7 @@ export function KitchenKdsPage() {
                           )}
                         </div>
                       )}
+                    )}
                   </div>
                 </div>
               );
