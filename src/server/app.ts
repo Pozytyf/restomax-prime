@@ -1,0 +1,92 @@
+import express from 'express';
+import cookieParser from 'cookie-parser';
+import { publicRouter } from './routes/public.ts';
+import { authRouter } from './routes/auth.ts';
+import { restaurantRouter } from './routes/restaurant.ts';
+import { superAdminRouter } from './routes/superadmin.ts';
+import { checkSupabaseHealth } from './lib/supabase.ts';
+import { getWebSocketStats } from './ws.ts';
+
+export function createExpressApp() {
+  const app = express();
+  app.set('trust proxy', 1);
+
+  app.use(express.json({ limit: '1mb' }));
+  app.use(cookieParser());
+
+  // Healthcheck (single, multi-instance & Supabase/Vercel readiness)
+  app.get('/api/health', async (_req, res) => {
+    const dbClient = (process.env.DATABASE_CLIENT || 'sqlite').toLowerCase();
+    const wsStats = getWebSocketStats();
+    const supabaseHealth = await checkSupabaseHealth();
+    res.json({
+      status: 'ok',
+      service: 'restomax',
+      timezone: 'Africa/Abidjan',
+      dbClient,
+      instanceId: wsStats.instanceId,
+      pubsubMode: wsStats.pubsubMode,
+      connectedWsClients: wsStats.connectedClients,
+      supabaseConfigured: supabaseHealth.configured,
+      supabaseRealtimeReady: supabaseHealth.realtimeReady,
+      postgresConnected: supabaseHealth.postgresConnected,
+      postgresLatencyMs: supabaseHealth.latencyMs,
+      vercelEnv: process.env.VERCEL_ENV || null,
+      vercelRegion: process.env.VERCEL_REGION || null,
+    });
+  });
+
+  // SEO endpoints: robots.txt & dynamic sitemap.xml
+  app.get('/robots.txt', (req, res) => {
+    const baseUrl =
+      process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    res.type('text/plain').send(
+      [
+        'User-agent: *',
+        'Allow: /',
+        'Disallow: /app',
+        'Disallow: /superadmin',
+        'Disallow: /api',
+        `Sitemap: ${baseUrl}/sitemap.xml`,
+      ].join('\n'),
+    );
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    const baseUrl =
+      process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+    const urls = [
+      '/',
+      '/fonctionnalites',
+      '/tarifs',
+      '/demonstration',
+      '/a-propos',
+      '/contact',
+      '/faq',
+      '/mentions-legales',
+      '/confidentialite',
+      '/cgu',
+      '/cgv',
+      '/cookies',
+    ];
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls
+  .map(
+    (u) => `  <url>
+    <loc>${baseUrl}${u}</loc>
+    <changefreq>weekly</changefreq>
+  </url>`,
+  )
+  .join('\n')}
+</urlset>`;
+    res.type('application/xml').send(xml);
+  });
+
+  app.use('/api/public', publicRouter);
+  app.use('/api/auth', authRouter);
+  app.use('/api/restaurant', restaurantRouter);
+  app.use('/api/superadmin', superAdminRouter);
+
+  return app;
+}
