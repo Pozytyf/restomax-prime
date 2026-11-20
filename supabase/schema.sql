@@ -547,6 +547,18 @@ ALTER TABLE public.reservations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 
+-- Tables accessibles uniquement par le backend (service_role / connexion pg).
+-- RLS activée SANS politique : l'accès via la clé anon / authenticated est bloqué.
+ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.platform_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.subscriptions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.platform_invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.qr_table_sessions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ticket_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.contact_leads ENABLE ROW LEVEL SECURITY;
+
 -- Lecture publique contrôlée pour les plans actifs & rôles authentifiés
 ALTER TABLE public.plans ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS plans_public_read ON public.plans;
