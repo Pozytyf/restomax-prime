@@ -1717,6 +1717,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       mode,
       paperWidth: printer.paperWidth,
       previewText: formatted.previewText,
+      logoUrl: kind === 'RECEIPT' && typeof resto.logoUrl === 'string' ? resto.logoUrl : null,
       base64Bytes: Buffer.from(formatted.bytes).toString('base64'),
       networkResult,
     };
