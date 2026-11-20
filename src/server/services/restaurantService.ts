@@ -1470,9 +1470,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       expenses,
       byMethod,
     } = isPostgresMode() ? await postgresRestaurantRepository.findFinanceSummary(rid) : restaurantRepository.findFinanceSummary(rid);
-    const totalExpenses = expenses.reduce(
-      (acc, e) => acc + Number(e.amountXof || 0),
-      0,
+    const totalExpenses = (expenses as Array<Record<string, unknown>>).reduce<number>(
+      (acc, e) => acc + Number(e.amountXof || 0), 0,
     );
     return {
       summary: {
