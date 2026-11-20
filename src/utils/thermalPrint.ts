@@ -119,7 +119,11 @@ function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm') {
 export async function executeThermalPrint(
   payload: ThermalPrintPayload,
 ): Promise<ThermalPrintResponse & { dispatchedVia: 'NETWORK' | 'WEB_SERIAL' | 'BROWSER' }> {
-  if (payload.kind === 'KITCHEN' && payload.items.length === 0) {\n    throw new Error('Aucun article à imprimer pour ce ticket cuisine/bar.');\n  }\n\n  const res = await apiFetch<ThermalPrintResponse>('/api/restaurant/print/escpos', {
+  if (payload.kind === 'KITCHEN' && payload.items.length === 0) {
+    throw new Error('Aucun article à imprimer pour ce ticket cuisine/bar.');
+  }
+
+  const res = await apiFetch<ThermalPrintResponse>('/api/restaurant/print/escpos', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
