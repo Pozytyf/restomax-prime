@@ -35,7 +35,7 @@ export const restaurantController = {
 
   async createMenuItem(req: Request, res: Response) {
     try {
-      const id = restaurantService.createMenuItem(req.auth!, req.body || {});
+      const id = await restaurantService.createMenuItem(req.auth!, req.body || {});
       res.status(201).json({ id });
     } catch (err) {
       handleControllerError(res, err, 'Erreur création article.');
@@ -328,7 +328,7 @@ export const restaurantController = {
 
   async updateStaff(req: Request, res: Response) {
     try {
-      restaurantService.updateStaff(
+      await restaurantService.updateStaff(
         req.auth!,
         String(req.params.memberId),
         req.body || {},
