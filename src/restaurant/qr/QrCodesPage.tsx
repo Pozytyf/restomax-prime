@@ -6,6 +6,17 @@ import { RestaurantLayout } from '../RestaurantLayout';
 import { apiFetch } from '../../services/api';
 import { useToast } from '../../components/Toast';
 import type { DiningTable } from '../../types';
+function printQrCards(tableId?: string) {
+  const body = document.body;
+  const cleanup = () => { delete body.dataset.qrPrintMode; delete body.dataset.qrPrintTable; };
+  body.dataset.qrPrintMode = tableId ? 'single' : 'all';
+  if (tableId) body.dataset.qrPrintTable = tableId;
+  else delete body.dataset.qrPrintTable;
+  window.addEventListener('afterprint', cleanup, { once: true });
+  window.print();
+  window.setTimeout(cleanup, 60000);
+}
+
 
 export function QrCodesPage() {
   const { t } = useTranslation();
@@ -56,11 +67,11 @@ export function QrCodesPage() {
       actions={
         <button
           type="button"
-          onClick={() => window.print()}
+          onClick={() => printQrCards()}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#182333] dark:bg-[#223044] hover:bg-[#223044] dark:hover:bg-[#2D4059] dark:border dark:border-[var(--rm-border)] text-white text-xs font-semibold cursor-pointer no-print"
         >
           <Printer className="w-4 h-4" />
-          <span>{t('pages.printQrSheetBtn')}</span>
+          <span>Imprimer tous les chevalets</span>
         </button>
       }
     >
@@ -85,12 +96,14 @@ export function QrCodesPage() {
             </Link>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="qr-print-scope grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {tables.map((tbl) => (
               <div
                 key={tbl.id}
-                className="bg-[var(--rm-surface)] rounded-xl border border-[var(--rm-border)] p-6 flex flex-col items-center text-center"
+                data-qr-table-id={tbl.id}
+                className="qr-print-card bg-[var(--rm-surface)] rounded-xl border border-[var(--rm-border)] p-6 flex flex-col items-center text-center"
               >
+                <div className="qr-screen-content flex flex-col items-center w-full">
                 <p className="text-xs text-[var(--rm-ink-muted)]">{tbl.zone}</p>
                 <h3 className="text-lg font-bold text-[var(--rm-ink)] mt-0.5">
                   {tbl.label}
@@ -104,14 +117,41 @@ export function QrCodesPage() {
                     <img
                       src={`/api/public/qr-image/${encodeURIComponent(tbl.qrToken)}`}
                       alt={`QR Code ${tbl.label}`}
-                      className="w-40 h-40"
+                      className="w-64 h-64"
                     />
-                    <p className="mt-2 text-[10px] font-mono text-[#64748B] break-all max-w-[180px]">
+                    <p className="mt-2 text-[10px] font-mono text-[#64748B] break-all max-w-[260px]">
                       /q/{tbl.qrToken}
                     </p>
                   </div>
                 )}
 
+                </div>
+                {tbl.qrToken && (
+                  <div className="qr-tent-print" aria-hidden="true">
+                    <section className="qr-tent-panel">
+                      <p className="qr-tent-brand">RESTO’MAX · MENU</p>
+                      <h2>{tbl.label}</h2>
+                      <p className="qr-tent-zone">{tbl.zone}</p>
+                      <img src={'/api/public/qr-image/' + encodeURIComponent(tbl.qrToken)} alt="" />
+                      <p className="qr-tent-instruction">Scannez pour consulter le menu et commander</p>
+                    </section>
+                    <div className="qr-tent-fold">PLIER ICI</div>
+                    <section className="qr-tent-panel qr-tent-panel-back">
+                      <p className="qr-tent-brand">RESTO’MAX · MENU</p>
+                      <h2>{tbl.label}</h2>
+                      <p className="qr-tent-zone">{tbl.zone}</p>
+                      <img src={'/api/public/qr-image/' + encodeURIComponent(tbl.qrToken)} alt="" />
+                      <p className="qr-tent-instruction">Scannez pour consulter le menu et commander</p>
+                    </section>
+                  </div>
+                )}
+                {tbl.qrToken && (
+                  <button type="button" onClick={() => printQrCards(tbl.id)}
+                    className="no-print w-full mb-2 py-2.5 rounded-lg bg-[#182333] dark:bg-[#223044] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 cursor-pointer">
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Imprimer ce chevalet uniquement</span>
+                  </button>
+                )}
                 <div className="w-full flex flex-col gap-2 no-print">
                   {tbl.qrToken && (
                     <>
