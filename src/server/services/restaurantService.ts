@@ -176,7 +176,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       if (!stockId || !Number.isFinite(qty) || qty <= 0) {
         continue;
       }
-      const stock = restaurantRepository.findStockById(stockId, rid);
+      const stock = isPostgresMode()
+      ? await postgresRestaurantRepository.findStockById(stockId, rid)
+      : restaurantRepository.findStockById(stockId, rid);
       if (!stock) {
         throw new AppError(404, 'Ingrédient introuvable pour cet établissement.');
       }
@@ -339,7 +341,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     broadcastRestaurantEvent(rid, 'menu:updated', { itemId });
   }
 
-  getOrders(rid: string) {
+  async getOrders(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findOrdersWithItems(rid);
     return restaurantRepository.findOrdersWithItems(rid);
   }
 
@@ -600,7 +603,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
   }
 
-  getPayments(rid: string) {
+  async getPayments(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findPayments(rid);
     return restaurantRepository.findPayments(rid);
   }
 
@@ -763,14 +767,22 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     }
   }
 
-  getTables(rid: string) {
+  async getTables(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findTablesWithQrAndActiveOrder(rid);
     return restaurantRepository.findTablesWithQrAndActiveOrder(rid);
   }
 
-  createTable(rid: string, body: Record<string, unknown>) {
+  async createTable(rid: string, body: Record<string, unknown>) {
     const { zone, label, capacity } = body || {};
     if (typeof label !== 'string' || label.trim().length < 1) {
       throw new AppError(400, 'Nom de table requis.');
+    }
+    if (isPostgresMode()) {
+      const { tableId, qrToken } = await postgresRestaurantRepository.createTableWithQr(
+        rid, String(zone || 'Salle principale').trim(), label.trim(),
+        Math.max(1, Math.min(24, Number(capacity) || 4)),
+      );
+      return { id: tableId, qrToken };
     }
     const { tableId, qrToken } = restaurantRepository.createTableWithQr(
       rid,
@@ -781,16 +793,30 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { id: tableId, qrToken };
   }
 
-  updateTableStatus(rid: string, tableId: string, status: unknown) {
+  async updateTableStatus(rid: string, tableId: string, status: unknown) {
     if (!['AVAILABLE', 'OCCUPIED', 'RESERVED'].includes(String(status))) {
       throw new AppError(400, 'Statut de table invalide.');
+    }
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateTableStatus(tableId, rid, String(status));
+      broadcastRestaurantEvent(rid, 'table:updated', { tableId, status });
+      return;
     }
     restaurantRepository.updateTableStatus(tableId, rid, String(status));
     broadcastRestaurantEvent(rid, 'table:updated', { tableId, status });
   }
 
-  regenerateTableQr(auth: AuthContext, tableId: string) {
+  async regenerateTableQr(auth: AuthContext, tableId: string) {
     const rid = auth.restaurantId!;
+    if (isPostgresMode()) {
+      const tbl = await postgresRestaurantRepository.findTableById(tableId, rid);
+      if (!tbl) throw new AppError(404, 'Table introuvable.');
+      const result = await postgresRestaurantRepository.regenerateTableQr(tableId, rid);
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
+        actorRole: auth.role, restaurantId: rid, action: 'QR_REGENERATED',
+        targetType: 'TABLE', targetId: tableId, details: `${tbl.label} -> version ${result.version}` });
+      return result;
+    }
     const tbl = restaurantRepository.findTableById(tableId, rid);
     if (!tbl) {
       throw new AppError(404, 'Table introuvable.');
@@ -809,14 +835,15 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return result;
   }
 
-  getStocks(rid: string) {
+  async getStocks(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findStocksAndMovements(rid);
     return restaurantRepository.findStocksAndMovements(rid);
   }
 
-  private resolveStockAlertRecipients(
+  private async resolveStockAlertRecipients(
     rid: string,
     customEmailsCsv: string,
-  ): string[] {
+  ): Promise<string[]> {
     const parsed = customEmailsCsv
       .split(/[,;\s]+/)
       .map((e) => e.trim().toLowerCase())
@@ -824,7 +851,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     if (parsed.length > 0) {
       return Array.from(new Set(parsed));
     }
-    return restaurantRepository.findManagerEmailsForRestaurant(rid);
+    return isPostgresMode() ? postgresRestaurantRepository.findManagerEmailsForRestaurant(rid) : restaurantRepository.findManagerEmailsForRestaurant(rid);
   }
 
   async dispatchCriticalStockAlert(params: {
@@ -838,15 +865,16 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     supplierName: string;
   }) {
     const rid = params.restaurantId || params.auth?.restaurantId;
+    if (isPostgresMode()) return this.dispatchCriticalStockAlertPostgres({ ...params, restaurantId: rid });
     if (!rid) {
       throw new AppError(400, 'Identifiant restaurant requis.');
     }
-    const settings = restaurantRepository.findStockAlertSettings(rid);
-    const recipients = this.resolveStockAlertRecipients(
+    const settings = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
+    const recipients = await this.resolveStockAlertRecipients(
       rid,
       settings.recipientEmails,
     );
-    const restaurantName = restaurantRepository.findRestaurantNameById(rid);
+    const restaurantName = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantNameById(rid) : restaurantRepository.findRestaurantNameById(rid);
 
     let emailResult: {
       dispatched: boolean;
@@ -885,7 +913,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
     let notification = null;
     if (settings.inAppEnabled) {
-      notification = restaurantRepository.createNotification({
+      notification = await postgresRestaurantRepository.createNotification({
         rid,
         type: 'STOCK_CRITICAL',
         title,
@@ -938,7 +966,11 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     const cleanThreshold = Math.max(0, Number(minThreshold ?? 5));
     const cleanSupplier = String(supplierName || '').trim();
 
-    const id = restaurantRepository.createStockItem({
+    const id = isPostgresMode()
+      ? await postgresRestaurantRepository.createStockItem({ rid, name: cleanName, unit: cleanUnit,
+          quantity: cleanQty, minThreshold: cleanThreshold,
+          unitCostXof: Math.round(Number(unitCostXof || 0)), supplierName: cleanSupplier })
+      : restaurantRepository.createStockItem({
       rid,
       name: cleanName,
       unit: cleanUnit,
@@ -979,7 +1011,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       throw new AppError(400, 'Quantité invalide.');
     }
 
-    const stock = restaurantRepository.findStockById(stockId, rid);
+    const stock = isPostgresMode() ? await postgresRestaurantRepository.findStockById(stockId, rid) : restaurantRepository.findStockById(stockId, rid);
     if (!stock) {
       throw new AppError(404, 'Article de stock introuvable.');
     }
@@ -992,7 +1024,11 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
           : -qty;
     const nextQty = Math.max(0, stock.quantity + delta);
 
-    restaurantRepository.applyStockMovement({
+    if (isPostgresMode()) await postgresRestaurantRepository.applyStockMovement({
+      rid, stockId: stock.id, nextQty, movementType: String(movementType), delta,
+      reason: String(reason || '').trim(), userId: auth.userId,
+    });
+    else restaurantRepository.applyStockMovement({
       rid,
       stockId: stock.id,
       nextQty,
@@ -1019,14 +1055,14 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { quantity: nextQty, alertTriggered };
   }
 
-  getStockAlertConfig(rid: string) {
+  async getStockAlertConfig(rid: string) {
     this.ensureTenantId(rid);
-    const settings = restaurantRepository.findStockAlertSettings(rid);
-    const resolvedRecipients = this.resolveStockAlertRecipients(
+    const settings = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
+    const resolvedRecipients = await this.resolveStockAlertRecipients(
       rid,
       settings.recipientEmails,
     );
-    const recentAlerts = restaurantRepository.findRecentStockAlerts(rid);
+    const recentAlerts = isPostgresMode() ? await postgresRestaurantRepository.findRecentStockAlerts(rid) : restaurantRepository.findRecentStockAlerts(rid);
     return {
       settings: {
         restaurantId: settings.restaurantId,
@@ -1047,7 +1083,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  updateStockAlertConfig(auth: AuthContext, body: Record<string, unknown>) {
+  async updateStockAlertConfig(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const {
       inAppEnabled,
@@ -1060,9 +1096,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       smtpPass,
       smtpFrom,
     } = body || {};
-    const current = restaurantRepository.findStockAlertSettings(rid);
+    const current = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
 
-    const updated = restaurantRepository.upsertStockAlertSettings({
+    const updated = isPostgresMode() ? await postgresRestaurantRepository.upsertStockAlertSettings({
       rid,
       inAppEnabled:
         typeof inAppEnabled === 'boolean' ? inAppEnabled : current.inAppEnabled,
@@ -1084,6 +1120,16 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       smtpPass: typeof smtpPass === 'string' ? smtpPass : undefined,
       smtpFrom:
         typeof smtpFrom === 'string' ? smtpFrom.trim() : current.smtpFrom,
+    }) : restaurantRepository.upsertStockAlertSettings({
+      rid, inAppEnabled: typeof inAppEnabled === 'boolean' ? inAppEnabled : current.inAppEnabled,
+      emailEnabled: typeof emailEnabled === 'boolean' ? emailEnabled : current.emailEnabled,
+      recipientEmails: typeof recipientEmails === 'string' ? recipientEmails.trim() : current.recipientEmails,
+      smtpHost: typeof smtpHost === 'string' ? smtpHost.trim() : current.smtpHost,
+      smtpPort: Number.isFinite(Number(smtpPort)) ? Math.max(1, Math.min(65535, Number(smtpPort))) : current.smtpPort,
+      smtpSecure: typeof smtpSecure === 'boolean' ? smtpSecure : current.smtpSecure,
+      smtpUser: typeof smtpUser === 'string' ? smtpUser.trim() : current.smtpUser,
+      smtpPass: typeof smtpPass === 'string' ? smtpPass : undefined,
+      smtpFrom: typeof smtpFrom === 'string' ? smtpFrom.trim() : current.smtpFrom,
     });
 
     recordAudit(getDb(), {
@@ -1102,7 +1148,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       inAppEnabled: updated.inAppEnabled,
       emailEnabled: updated.emailEnabled,
       recipientEmails: updated.recipientEmails,
-      resolvedRecipients: this.resolveStockAlertRecipients(
+      resolvedRecipients: await this.resolveStockAlertRecipients(
         rid,
         updated.recipientEmails,
       ),
@@ -1120,7 +1166,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
   async testStockAlertEmail(auth: AuthContext) {
     const rid = auth.restaurantId!;
     const settings = restaurantRepository.findStockAlertSettings(rid);
-    const recipients = this.resolveStockAlertRecipients(
+    const recipients = await this.resolveStockAlertRecipients(
       rid,
       settings.recipientEmails,
     );
@@ -1159,18 +1205,18 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getNotifications(rid: string) {
+  async getNotifications(rid: string) {
     this.ensureTenantId(rid);
-    const notifications =
-      restaurantRepository.findNotificationsForRestaurant(rid);
+    const notifications = isPostgresMode() ? await postgresRestaurantRepository.findNotificationsForRestaurant(rid) : restaurantRepository.findNotificationsForRestaurant(rid);
     const unreadCount = notifications.filter((n) => !n.isRead).length;
     return { notifications, unreadCount };
   }
 
-  markNotificationsRead(rid: string, body: Record<string, unknown>) {
+  async markNotificationsRead(rid: string, body: Record<string, unknown>) {
     this.ensureTenantId(rid);
     const id = typeof body?.id === 'string' ? body.id : undefined;
-    restaurantRepository.markNotificationsRead(rid, id);
+    if (isPostgresMode()) await postgresRestaurantRepository.markNotificationsRead(rid, id);
+    else restaurantRepository.markNotificationsRead(rid, id);
     broadcastRestaurantEvent(rid, 'notifications:updated', {
       id: id || null,
     });
