@@ -11,6 +11,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test": "tsx --test src/tests/security-and-flow.test.ts",
+    "test:infra": "tsx --test src/tests/supabase-vercel.test.ts",
     "test:auth": "NODE_OPTIONS=--experimental-vm-modules jest",
     "migrate:latest": "tsx src/server/migrate.ts latest",
     "migrate:rollback": "tsx src/server/migrate.ts rollback",
