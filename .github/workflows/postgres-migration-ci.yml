@@ -31,3 +31,5 @@ jobs:
         run: npm test
       - name: Supabase and Vercel infrastructure tests
         run: npm run test:infra
+      - name: Auth repository transaction tests
+        run: npm run test:auth-repository
