@@ -30,7 +30,6 @@ restaurantRouter.post(
 );
 restaurantRouter.post(
   '/media/upload-url',
-  requirePermission('menu:write'),
   restaurantController.createImageUploadUrl,
 );
 restaurantRouter.post(
