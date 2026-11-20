@@ -12,6 +12,7 @@ import {
 } from '../repositories/restaurantRepository.ts';
 import { BaseService } from './BaseService.ts';
 import { AppError } from './errors.ts';
+import { isRestaurantImageUrl } from './neonStorage.ts';
 import { postgresRestaurantRepository } from '../repositories/postgresRestaurantRepository.ts';
 
 const isPostgresMode = () => ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && process.env.RESTOMAX_POSTGRES_CUTOVER === 'true' && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
@@ -241,6 +242,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     const rid = auth.restaurantId!;
     const { categoryId, name, description, priceXof, costPriceXof, options, imageUrl } =
       body || {};
+    if (imageUrl !== undefined && imageUrl !== null && !isRestaurantImageUrl(rid, 'menu', imageUrl)) {
+      throw new AppError(400, 'URL de photo d’article invalide.');
+    }
     if (
       typeof categoryId !== 'string' ||
       typeof name !== 'string' ||
@@ -307,6 +311,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
   }
 
   async updateMenuItem(rid: string, itemId: string, body: Record<string, unknown>) {
+    if (body.imageUrl !== undefined && body.imageUrl !== null && !isRestaurantImageUrl(rid, 'menu', body.imageUrl)) {
+      throw new AppError(400, 'URL de photo d’article invalide.');
+    }
     if (isPostgresMode()) {
       if (!await postgresRestaurantRepository.findMenuItemById(itemId, rid)) throw new AppError(404, 'Article introuvable.');
       const { available, priceXof, name, description, imageUrl } = body || {};
@@ -1575,6 +1582,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async updateSettings(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
+    if (body.logoUrl !== undefined && body.logoUrl !== null && !isRestaurantImageUrl(rid, 'logo', body.logoUrl)) {
+      throw new AppError(400, 'URL du logo invalide.');
+    }
     const {
       name,
       phone,
