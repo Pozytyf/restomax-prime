@@ -42,8 +42,13 @@ export async function up(knex: Knex): Promise<void> {
 export async function down(knex: Knex): Promise<void> {
   if (knex.client.config.client !== 'pg') return;
 
-  // Restore the previous broad grants if this migration is rolled back.
+  // Restore only the grants this migration changed.
   await knex.raw(
-    'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO anon, authenticated',
+    'GRANT TRUNCATE ON ALL TABLES IN SCHEMA public TO anon, authenticated',
   );
+  for (const table of backendOnlyTables) {
+    await knex.raw(
+      `GRANT ALL PRIVILEGES ON TABLE public.${table} TO anon, authenticated`,
+    );
+  }
 };
