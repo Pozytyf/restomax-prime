@@ -12,6 +12,9 @@ import {
 } from '../repositories/restaurantRepository.ts';
 import { BaseService } from './BaseService.ts';
 import { AppError } from './errors.ts';
+import { postgresRestaurantRepository } from '../repositories/postgresRestaurantRepository.ts';
+
+const isPostgresMode = () => ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && process.env.RESTOMAX_POSTGRES_CUTOVER === 'true' && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
 import {
   isEnvSmtpConfigured,
   sendCriticalStockAlertEmail,
@@ -276,6 +279,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
   }
 
   async createPosOrder(auth: AuthContext, body: Record<string, unknown>) {
+    if (isPostgresMode()) return this.createPosOrderPostgres(auth, body);
     const rid = auth.restaurantId!;
     const {
       orderType,
@@ -483,7 +487,18 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  updateOrderStatus(auth: AuthContext, orderId: string, status: unknown) {
+  async updateOrderStatus(auth: AuthContext, orderId: string, status: unknown) {
+    if (isPostgresMode()) {
+      const rid = auth.restaurantId!;
+      const valid = ['PENDING', 'IN_PREPARATION', 'READY', 'SERVED', 'CANCELLED'];
+      if (!valid.includes(String(status))) throw new AppError(400, 'Statut de commande invalide.');
+      const allowed = auth.permissions.includes('kitchen:write') || auth.permissions.includes('orders:write') || auth.permissions.includes('pos:pay');
+      if (!allowed) throw new AppError(403, 'Permission insuffisante.');
+      await postgresRestaurantRepository.updateOrderStatusTransaction(orderId, rid, String(status));
+      broadcastRestaurantEvent(rid, 'order:updated', { orderId, status });
+      broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
+      return;
+    }
     const rid = auth.restaurantId!;
     const valid = [
       'PENDING',
@@ -524,11 +539,12 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return restaurantRepository.findPayments(rid);
   }
 
-  payOrder(
+  async payOrder(
     auth: AuthContext,
     orderId: string,
     body: Record<string, unknown>,
   ) {
+    if (isPostgresMode()) return this.payOrderPostgres(auth, orderId, body);
     const rid = auth.restaurantId!;
     const { amountXof, method, idempotencyKey } = body || {};
 
@@ -640,7 +656,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     }
   }
 
-  refundPayment(auth: AuthContext, paymentId: string) {
+  async refundPayment(auth: AuthContext, paymentId: string) {
+    if (isPostgresMode()) return this.refundPaymentPostgres(auth, paymentId);
     const rid = auth.restaurantId!;
     const db = getDb();
     try {
@@ -1528,6 +1545,110 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         : 'MEDIUM',
       message: message.trim(),
     });
+  }
+  private async createPosOrderPostgres(auth: AuthContext, body: Record<string, unknown>) {
+    const rid = auth.restaurantId!;
+    const { orderType, tableId, customerName, discountXof, notes, items, idempotencyKey } = body || {};
+    if (!Array.isArray(items) || items.length === 0) throw new AppError(400, 'La commande doit contenir au moins un article.');
+    if (idempotencyKey) {
+      const existing = await postgresRestaurantRepository.findOrderByIdempotencyKey(rid, String(idempotencyKey));
+      if (existing) return { order: existing, deduplicated: true };
+    }
+    const resto = await postgresRestaurantRepository.findRestaurantTaxAndMode(rid);
+    if (tableId && !await postgresRestaurantRepository.findTableById(String(tableId), rid)) {
+      throw new AppError(404, 'Table introuvable pour cet établissement.');
+    }
+    const now = new Date().toISOString();
+    const orderId = generateId('ord');
+    const orderNumber = `CMD-${1001 + await postgresRestaurantRepository.countOrders(rid)}`;
+    let grossXof = 0;
+    const lines: Array<{ id: string; menuItemId: string; name: string; station: string;
+      unitPriceXof: number; optionsSummary: string; optionsDeltaXof: number;
+      quantity: number; lineTotalXof: number; notes: string }> = [];
+    for (const rawLine of items) {
+      const line = rawLine as { menuItemId?: unknown; quantity?: unknown; optionIds?: unknown; notes?: unknown };
+      const parsedQty = Number(line.quantity ?? 1);
+      if (!Number.isFinite(parsedQty) || parsedQty <= 0) throw new AppError(400, 'Quantité d’article invalide.');
+      const quantity = Math.max(1, Math.min(100, Math.floor(parsedQty)));
+      const item = await postgresRestaurantRepository.findMenuItemWithStation(String(line.menuItemId), rid);
+      if (!item || !item.available) throw new AppError(400, 'Article indisponible dans le catalogue.');
+      const options = JSON.parse(String(item.options_json || '[]')) as Array<{ id: string; label: string; priceDeltaXof: number }>;
+      const requested = Array.isArray(line.optionIds) ? line.optionIds.map(String) : [];
+      const selected = options.filter(option => requested.includes(option.id));
+      const delta = selected.reduce((sum, option) => sum + Number(option.priceDeltaXof || 0), 0);
+      const unit = Number(item.price_xof);
+      const lineTotal = (unit + delta) * quantity;
+      grossXof += lineTotal;
+      lines.push({ id: generateId('oi'), menuItemId: String(item.id), name: String(item.name),
+        station: String(item.station || 'KITCHEN'), unitPriceXof: unit,
+        optionsSummary: selected.map(option => option.label).join(', '),
+        optionsDeltaXof: delta, quantity, lineTotalXof: lineTotal,
+        notes: String(line.notes || '').slice(0, 200) });
+    }
+    const discount = Math.max(0, Math.min(grossXof, Math.round(Number(discountXof || 0))));
+    const totalXof = Math.max(0, grossXof - discount);
+    const taxRate = Number(resto?.tax_rate_percent || 18);
+    const subtotalXof = Math.round(totalXof / (1 + taxRate / 100));
+    const taxXof = totalXof - subtotalXof;
+    let deduction: { deductedCount: number; lowStocksTriggered: Array<{ id: string; name: string;
+      quantity: number; minThreshold: number; unit: string; supplierName: string }> };
+    try {
+      deduction = await postgresRestaurantRepository.createPosOrderTransaction({
+        orderId, rid, orderNumber, orderType: orderType === 'TAKEAWAY' ? 'TAKEAWAY' : 'DINE_IN',
+        tableId: tableId ? String(tableId) : null,
+        customerName: String(customerName || 'Client sur place').slice(0, 80),
+        subtotalXof, discountXof: discount, taxXof, totalXof,
+        notes: String(notes || '').slice(0, 300),
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+        userId: auth.userId, now, lines,
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === '23505' && idempotencyKey) {
+        const existing = await postgresRestaurantRepository.findOrderByIdempotencyKey(rid, String(idempotencyKey));
+        if (existing) return { order: existing, deduplicated: true };
+      }
+      if (error instanceof AppError) throw error;
+      throw new AppError(500, 'Erreur création commande.');
+    }
+    if (deduction.deductedCount > 0) broadcastRestaurantEvent(rid, 'stock:updated', {
+      orderId, orderNumber, deductedCount: deduction.deductedCount,
+    });
+    // Low-stock notification delivery is migrated with the notification subsystem.
+    broadcastRestaurantEvent(rid, 'order:created', { orderId, orderNumber, totalXof });
+    return { deduplicated: false, order: { id: orderId, orderNumber, totalXof,
+      status: 'PENDING', items: lines } };
+  }
+
+  private async payOrderPostgres(auth: AuthContext, orderId: string, body: Record<string, unknown>) {
+    const rid = auth.restaurantId!;
+    const { amountXof, method, idempotencyKey } = body || {};
+    if (!['CASH', 'ORANGE_MONEY', 'MTN_MOMO', 'WAVE', 'CARD'].includes(String(method))) throw new AppError(400, 'Moyen de paiement invalide.');
+    const amount = Math.round(Number(amountXof || 0));
+    if (!Number.isFinite(amount) || amount <= 0) throw new AppError(400, 'Montant invalide.');
+    const resto = await postgresRestaurantRepository.findRestaurantTaxAndMode(rid);
+    const mode = resto?.paydunya_mode === 'LIVE' ? 'LIVE' : 'TEST';
+    const reference = `${mode}-${String(method).slice(0, 4)}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const now = new Date().toISOString();
+    const result = await postgresRestaurantRepository.recordPaymentTransaction({
+      rid, orderId, paymentId: generateId('pay'), amountXof: amount,
+      method: String(method), mode, reference,
+      idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+      userId: auth.userId, actorEmail: auth.email, actorRole: auth.role, now,
+    });
+    if (result.deduplicated) return { payment: result.payment, deduplicated: true };
+    const payment = result.payment;
+    broadcastRestaurantEvent(rid, 'payment:created', { orderId, paymentId: payment.id, amountXof: amount, fullyPaid: payment.fullyPaid });
+    broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status: payment.orderStatus });
+    return { deduplicated: false, payment };
+  }
+
+  private async refundPaymentPostgres(auth: AuthContext, paymentId: string) {
+    const rid = auth.restaurantId!;
+    await postgresRestaurantRepository.refundPaymentTransaction({
+      paymentId, rid, userId: auth.userId, actorEmail: auth.email, actorRole: auth.role,
+    });
+    broadcastRestaurantEvent(rid, 'payment:refunded', { paymentId });
+    return { ok: true };
   }
 }
 
