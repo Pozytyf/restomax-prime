@@ -152,6 +152,376 @@ export class PostgresRestaurantRepository {
     });
   }
 
+  async findOrdersWithItems(rid: string) {
+    const orders = await this.db('orders as o').leftJoin('dining_tables as t', 't.id', 'o.table_id')
+      .where('o.restaurant_id', rid).select('o.id', { restaurantId: 'o.restaurant_id' },
+        { orderNumber: 'o.order_number' }, { orderType: 'o.order_type' },
+        { tableId: 'o.table_id' }, { tableLabel: 't.label' }, { tableZone: 't.zone' },
+        { customerName: 'o.customer_name' }, 'o.status', { subtotalXof: 'o.subtotal_xof' },
+        { discountXof: 'o.discount_xof' }, { taxXof: 'o.tax_xof' }, { totalXof: 'o.total_xof' },
+        { paidXof: 'o.paid_xof' }, 'o.notes', { createdByUserId: 'o.created_by_user_id' },
+        { createdAt: 'o.created_at' }, { updatedAt: 'o.updated_at' })
+      .orderBy('o.created_at', 'desc').limit(100);
+    const ids = orders.map(o => o.id);
+    const lines = ids.length ? await this.db('order_items').whereIn('order_id', ids)
+      .select('id', { orderId: 'order_id' }, { menuItemId: 'menu_item_id' }, 'name', 'station',
+        { unitPriceXof: 'unit_price_xof' }, { optionsSummary: 'options_summary' },
+        { optionsDeltaXof: 'options_delta_xof' }, 'quantity', { lineTotalXof: 'line_total_xof' },
+        'notes', { prepStatus: 'prep_status' }) : [];
+    const byOrder = new Map<string, typeof lines>();
+    for (const line of lines) { const key = String(line.orderId); const list = byOrder.get(key) || []; list.push(line); byOrder.set(key, list); }
+    return orders.map(o => ({ ...o, items: byOrder.get(String(o.id)) || [] }));
+  }
+
+  async findPayments(rid: string) {
+    return this.db('payments as p').join('orders as o', 'o.id', 'p.order_id')
+      .where('p.restaurant_id', rid).select('p.id', { restaurantId: 'p.restaurant_id' },
+        { orderId: 'p.order_id' }, { orderNumber: 'o.order_number' },
+        { amountXof: 'p.amount_xof' }, 'p.method', 'p.status', 'p.mode',
+        'p.reference', { createdAt: 'p.created_at' }).orderBy('p.created_at', 'desc').limit(100);
+  }
+
+  async findTablesWithQrAndActiveOrder(rid: string) {
+    return this.db('dining_tables as t').leftJoin('qr_codes as q', function() {
+      this.on('q.table_id', '=', 't.id').andOn('q.status', '=', this.client.raw('?', ['ACTIVE']));
+    }).where('t.restaurant_id', rid).select('t.id', { restaurantId: 't.restaurant_id' },
+      't.zone', 't.label', 't.capacity', 't.status', { qrToken: 'q.token' },
+      { qrVersion: 'q.version' }, { qrStatus: 'q.status' })
+      .select(this.db.raw("(SELECT id FROM orders o WHERE o.table_id = t.id AND o.restaurant_id = t.restaurant_id AND o.status NOT IN ('PAID', 'CANCELLED') ORDER BY o.created_at DESC LIMIT 1) as \"activeOrderId\""))
+      .select(this.db.raw("(SELECT total_xof FROM orders o WHERE o.table_id = t.id AND o.restaurant_id = t.restaurant_id AND o.status NOT IN ('PAID', 'CANCELLED') ORDER BY o.created_at DESC LIMIT 1) as \"activeOrderTotalXof\""))
+      .orderBy('t.zone', 'asc').orderBy('t.label', 'asc');
+  }
+
+  async createTableWithQr(rid: string, zone: string, label: string, capacity: number) {
+    const tableId = generateId('tbl');
+    const qrToken = `${rid.slice(-6)}-${generateId('q').slice(-8)}-v1`;
+    const now = new Date().toISOString();
+    await this.db.transaction(async trx => {
+      await trx('dining_tables').insert({ id: tableId, restaurant_id: rid, zone, label, capacity, status: 'AVAILABLE' });
+      await trx('qr_codes').insert({ id: generateId('qr'), restaurant_id: rid, table_id: tableId,
+        token: qrToken, version: 1, status: 'ACTIVE', created_at: now });
+    });
+    return { tableId, qrToken };
+  }
+
+  async updateTableStatus(tableId: string, rid: string, status: string) {
+    await this.db('dining_tables').where({ id: tableId, restaurant_id: rid }).update({ status });
+  }
+
+  async regenerateTableQr(tableId: string, rid: string) {
+    return this.db.transaction(async trx => {
+      const row = await trx('qr_codes').where({ table_id: tableId, restaurant_id: rid })
+        .max({ version: 'version' }).first();
+      const nextVersion = Number(row?.version || 0) + 1;
+      const token = `${rid.slice(-6)}-${generateId('q').slice(-8)}-v${nextVersion}`;
+      const now = new Date().toISOString();
+      await trx('qr_codes').where({ table_id: tableId, restaurant_id: rid, status: 'ACTIVE' })
+        .update({ status: 'REVOKED', revoked_at: now });
+      await trx('qr_codes').insert({ id: generateId('qr'), restaurant_id: rid, table_id: tableId,
+        token, version: nextVersion, status: 'ACTIVE', created_at: now });
+      return { token, version: nextVersion };
+    });
+  }
+
+  async findStocksAndMovements(rid: string) {
+    const [stocks, movements] = await Promise.all([
+      this.db('stocks as s').where('s.restaurant_id', rid)
+        .select('s.id', { restaurantId: 's.restaurant_id' }, 's.name', 's.unit', 's.quantity',
+          { minThreshold: 's.min_threshold' }, { unitCostXof: 's.unit_cost_xof' },
+          { supplierName: 's.supplier_name' }, { updatedAt: 's.updated_at' })
+        .select(this.db.raw('(SELECT COUNT(*)::int FROM menu_item_recipes r WHERE r.stock_id = s.id AND r.restaurant_id = s.restaurant_id) as "usedInRecipesCount"'))
+        .orderBy('s.name', 'asc'),
+      this.db('stock_movements as m').join('stocks as s', 's.id', 'm.stock_id')
+        .where('m.restaurant_id', rid).select('m.id', { stockName: 's.name' },
+          { movementType: 'm.movement_type' }, { quantityDelta: 'm.quantity_delta' },
+          'm.reason', { createdAt: 'm.created_at' }).orderBy('m.created_at', 'desc').limit(40),
+    ]);
+    return { stocks, movements };
+  }
+
+  async createStockItem(params: { rid: string; name: string; unit: string; quantity: number;
+    minThreshold: number; unitCostXof: number; supplierName: string }) {
+    const id = generateId('stk');
+    await this.db('stocks').insert({ id, restaurant_id: params.rid, name: params.name,
+      unit: params.unit, quantity: params.quantity, min_threshold: params.minThreshold,
+      unit_cost_xof: params.unitCostXof, supplier_name: params.supplierName,
+      updated_at: new Date().toISOString() });
+    return id;
+  }
+
+  async applyStockMovement(params: { rid: string; stockId: string; nextQty: number;
+    movementType: string; delta: number; reason: string; userId: string }) {
+    const now = new Date().toISOString();
+    await this.db.transaction(async trx => {
+      await trx('stocks').where({ id: params.stockId, restaurant_id: params.rid })
+        .update({ quantity: params.nextQty, updated_at: now });
+      await trx('stock_movements').insert({ id: generateId('smv'),
+        restaurant_id: params.rid, stock_id: params.stockId, movement_type: params.movementType,
+        quantity_delta: params.delta, reason: params.reason, created_by_user_id: params.userId,
+        created_at: now });
+    });
+  }
+
+  async findRestaurantNameById(rid: string) {
+    const row = await this.db('restaurants').select('name').where({ id: rid }).first();
+    return row?.name || 'Établissement Resto’MAX';
+  }
+
+  async findStockAlertSettings(rid: string) {
+    const row = await this.db('stock_alert_settings').where({ restaurant_id: rid }).first();
+    if (!row) return { restaurantId: rid, inAppEnabled: true, emailEnabled: true,
+      recipientEmails: '', smtpHost: '', smtpPort: 587, smtpSecure: false,
+      smtpUser: '', smtpPass: '', smtpFrom: '', updatedAt: new Date().toISOString() };
+    return { restaurantId: rid, inAppEnabled: Boolean(row.in_app_enabled),
+      emailEnabled: Boolean(row.email_enabled), recipientEmails: row.recipient_emails || '',
+      smtpHost: row.smtp_host || '', smtpPort: Number(row.smtp_port || 587),
+      smtpSecure: Boolean(row.smtp_secure), smtpUser: row.smtp_user || '',
+      smtpPass: row.smtp_pass || '', smtpFrom: row.smtp_from || '', updatedAt: row.updated_at };
+  }
+
+  async upsertStockAlertSettings(params: { rid: string; inAppEnabled: boolean; emailEnabled: boolean;
+    recipientEmails: string; smtpHost: string; smtpPort: number; smtpSecure: boolean;
+    smtpUser: string; smtpPass?: string; smtpFrom: string }) {
+    const current = await this.findStockAlertSettings(params.rid);
+    const now = new Date().toISOString();
+    await this.db('stock_alert_settings').insert({
+      restaurant_id: params.rid, in_app_enabled: params.inAppEnabled ? 1 : 0,
+      email_enabled: params.emailEnabled ? 1 : 0, recipient_emails: params.recipientEmails,
+      smtp_host: params.smtpHost, smtp_port: params.smtpPort,
+      smtp_secure: params.smtpSecure ? 1 : 0, smtp_user: params.smtpUser,
+      smtp_pass: params.smtpPass?.trim() ? params.smtpPass : current.smtpPass,
+      smtp_from: params.smtpFrom, updated_at: now,
+    }).onConflict('restaurant_id').merge();
+    return this.findStockAlertSettings(params.rid);
+  }
+
+  async findManagerEmailsForRestaurant(rid: string) {
+    const rows = await this.db('restaurant_members as rm').join('users as u', 'u.id', 'rm.user_id')
+      .distinct('u.email').where({ 'rm.restaurant_id': rid, 'rm.status': 'ACTIVE', 'u.status': 'ACTIVE' })
+      .whereIn('rm.role', ['OWNER', 'MANAGER']);
+    return rows.map(row => row.email);
+  }
+
+  async createNotification(params: { rid: string; type: string; title: string; message: string;
+    stockId: string | null; emailDispatched: boolean; emailRecipients: string;
+    emailStatus: 'SENT' | 'QUEUED_NO_SMTP' | 'SKIPPED' | 'FAILED' }) {
+    const id = generateId('ntf'); const now = new Date().toISOString();
+    await this.db('notifications').insert({ id, restaurant_id: params.rid, type: params.type,
+      title: params.title, message: params.message, stock_id: params.stockId,
+      email_dispatched: params.emailDispatched ? 1 : 0, email_recipients: params.emailRecipients,
+      email_status: params.emailStatus, is_read: 0, created_at: now });
+    return { id, restaurantId: params.rid, type: params.type, title: params.title,
+      message: params.message, stockId: params.stockId, emailDispatched: params.emailDispatched,
+      emailRecipients: params.emailRecipients, emailStatus: params.emailStatus,
+      isRead: false, createdAt: now };
+  }
+
+  async findNotificationsForRestaurant(rid: string, limit = 30) {
+    const rows = await this.db('notifications').where({ restaurant_id: rid })
+      .select('id', { restaurantId: 'restaurant_id' }, 'type', 'title', 'message',
+        { stockId: 'stock_id' }, { emailDispatched: 'email_dispatched' },
+        { emailRecipients: 'email_recipients' }, { emailStatus: 'email_status' },
+        { isRead: 'is_read' }, { createdAt: 'created_at' })
+      .orderBy('created_at', 'desc').limit(limit);
+    return rows.map(row => ({ ...row, stockId: row.stockId ? String(row.stockId) : null,
+      emailDispatched: Boolean(row.emailDispatched), isRead: Boolean(row.isRead) }));
+  }
+
+  async markNotificationsRead(rid: string, notificationId?: string) {
+    const query = this.db('notifications').where({ restaurant_id: rid });
+    if (notificationId) query.andWhere({ id: notificationId });
+    await query.update({ is_read: 1 });
+  }
+
+  async findRecentStockAlerts(rid: string, limit = 15) {
+    return this.findNotificationsForRestaurant(rid, limit).then(rows => rows.filter(row => row.type === 'STOCK_CRITICAL'));
+  }
+
+  async findStaffMembers(rid: string) {
+    return this.db('restaurant_members as rm').join('users as u', 'u.id', 'rm.user_id')
+      .where('rm.restaurant_id', rid).select('rm.id', { userId: 'rm.user_id' },
+        { fullName: 'u.full_name' }, 'u.email', 'u.phone', 'rm.role', 'rm.status',
+        'rm.custom_permissions_json', { createdAt: 'rm.created_at' }).orderBy('rm.created_at', 'asc');
+  }
+
+  findUserByEmail(email: string) {
+    return this.db('users').select('id').whereRaw('LOWER(email) = LOWER(?)', [email]).first();
+  }
+
+  async createStaffUserAndMember(params: { rid: string; email: string; passwordHash: string;
+    fullName: string; phone: string | null; role: string; customPermissions: string[] }) {
+    const userId = generateId('usr'); const memberId = generateId('mem');
+    const now = new Date().toISOString();
+    await this.db.transaction(async trx => {
+      await trx('users').insert({ id: userId, tenant_id: params.rid, email: params.email,
+        password_hash: params.passwordHash, full_name: params.fullName, phone: params.phone,
+        role: params.role, global_role: 'USER', permissions_json: JSON.stringify(params.customPermissions),
+        status: 'ACTIVE', created_at: now });
+      await trx('restaurant_members').insert({ id: memberId, restaurant_id: params.rid,
+        user_id: userId, role: params.role, custom_permissions_json: JSON.stringify(params.customPermissions),
+        status: 'ACTIVE', created_at: now });
+    });
+    return { memberId, userId };
+  }
+
+  findMemberById(memberId: string, rid: string) {
+    return this.db('restaurant_members').select('id', 'user_id', 'role')
+      .where({ id: memberId, restaurant_id: rid }).first();
+  }
+
+  async updateStaffMember(memberId: string, rid: string, userId: string, updates: {
+    status?: string; role?: string; customPermissions?: string[] }) {
+    await this.db.transaction(async trx => {
+      if (updates.status) {
+        await trx('restaurant_members').where({ id: memberId, restaurant_id: rid }).update({ status: updates.status });
+        if (updates.status !== 'ACTIVE') await trx('sessions').where({ user_id: userId })
+          .whereNull('revoked_at').update({ revoked_at: new Date().toISOString() });
+      }
+      if (updates.role) await trx('restaurant_members').where({ id: memberId, restaurant_id: rid }).update({ role: updates.role });
+      if (updates.customPermissions) await trx('restaurant_members').where({ id: memberId, restaurant_id: rid })
+        .update({ custom_permissions_json: JSON.stringify(updates.customPermissions) });
+    });
+  }
+
+  async findCustomers(rid: string) {
+    return this.db('customers').where({ restaurant_id: rid })
+      .select('id', { restaurantId: 'restaurant_id' }, { fullName: 'full_name' }, 'phone', 'email',
+        { loyaltyPoints: 'loyalty_points' }, { totalSpentXof: 'total_spent_xof' },
+        { visitsCount: 'visits_count' }, 'preferences', { createdAt: 'created_at' })
+      .orderBy('total_spent_xof', 'desc');
+  }
+
+  async createCustomer(params: { rid: string; fullName: string; phone: string; email: string; preferences: string }) {
+    const id = generateId('cust');
+    await this.db('customers').insert({ id, restaurant_id: params.rid, full_name: params.fullName,
+      phone: params.phone, email: params.email, loyalty_points: 0, total_spent_xof: 0,
+      visits_count: 0, preferences: params.preferences, created_at: new Date().toISOString() });
+    return id;
+  }
+
+  async findReservations(rid: string) {
+    return this.db('reservations as r').leftJoin('dining_tables as t', 't.id', 'r.table_id')
+      .where('r.restaurant_id', rid).select('r.id', { restaurantId: 'r.restaurant_id' },
+        { customerName: 'r.customer_name' }, { customerPhone: 'r.customer_phone' },
+        { partySize: 'r.party_size' }, { reservedAt: 'r.reserved_at' },
+        { tableId: 'r.table_id' }, { tableLabel: 't.label' }, 'r.status', 'r.notes')
+      .orderBy('r.reserved_at', 'asc');
+  }
+
+  async createReservation(params: { rid: string; customerName: string; customerPhone: string;
+    partySize: number; reservedAt: string; tableId: string | null; notes: string }) {
+    const id = generateId('res');
+    await this.db('reservations').insert({ id, restaurant_id: params.rid,
+      customer_name: params.customerName, customer_phone: params.customerPhone,
+      party_size: params.partySize, reserved_at: params.reservedAt, table_id: params.tableId,
+      status: 'CONFIRMED', notes: params.notes, created_at: new Date().toISOString() });
+    return id;
+  }
+
+  async updateReservationStatus(id: string, rid: string, status: string) {
+    await this.db('reservations').where({ id, restaurant_id: rid }).update({ status });
+  }
+
+  async findFinanceSummary(rid: string) {
+    const todayDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Abidjan' }).format(new Date());
+    const start = `${todayDate}T00:00:00.000Z`;
+    const end = new Date(new Date(start).getTime() + 86400000).toISOString();
+    const [sales, todaySales, todayPayments, cogsRow, expenses, byMethod] = await Promise.all([
+      this.db('orders').where({ restaurant_id: rid }).whereNot('status', 'CANCELLED')
+        .select(this.db.raw('COALESCE(SUM(total_xof), 0) as gross_sales'),
+          this.db.raw('COALESCE(SUM(tax_xof), 0) as total_tax'),
+          this.db.raw('COALESCE(SUM(paid_xof), 0) as collected')).first(),
+      this.db('orders').where({ restaurant_id: rid }).whereNot('status', 'CANCELLED')
+        .where('created_at', '>=', start).andWhere('created_at', '<', end)
+        .select(this.db.raw('COALESCE(SUM(total_xof), 0) as revenue_xof'),
+          this.db.raw('COUNT(*)::int as orders_count'),
+          this.db.raw('COALESCE(AVG(total_xof), 0) as avg_basket')).first(),
+      this.db('payments').where({ restaurant_id: rid, status: 'PAID' })
+        .where('created_at', '>=', start).andWhere('created_at', '<', end)
+        .sum({ collected_xof: 'amount_xof' }).first(),
+      this.db('order_items as oi').join('orders as o', 'o.id', 'oi.order_id')
+        .join('menu_items as mi', 'mi.id', 'oi.menu_item_id')
+        .where('o.restaurant_id', rid).whereNot('o.status', 'CANCELLED')
+        .sum({ total_cogs: this.db.raw('oi.quantity * mi.cost_price_xof') }).first(),
+      this.db('expenses').where({ restaurant_id: rid })
+        .select('id', 'category', 'description', { amountXof: 'amount_xof' }, { expenseDate: 'expense_date' })
+        .orderBy('expense_date', 'desc'),
+      this.db('payments').where({ restaurant_id: rid, status: 'PAID' })
+        .select('method', this.db.raw('COALESCE(SUM(amount_xof), 0) as "amountXof"'),
+          this.db.raw('COUNT(*)::int as count')).groupBy('method'),
+    ]);
+    return { sales, todayDate, todaySales, todayPayments, cogsRow, expenses, byMethod };
+  }
+
+  async createExpense(params: { rid: string; category: string; description: string;
+    amountXof: number; expenseDate?: string }) {
+    const id = generateId('exp'); const now = new Date().toISOString();
+    await this.db('expenses').insert({ id, restaurant_id: params.rid, category: params.category,
+      description: params.description, amount_xof: params.amountXof,
+      expense_date: params.expenseDate || now, created_at: now });
+    return id;
+  }
+
+  async findOrdersForCsvExport(rid: string) {
+    return this.db('orders').where({ restaurant_id: rid })
+      .select('order_number', 'order_type', 'customer_name', 'status',
+        'total_xof', 'paid_xof', 'created_at').orderBy('created_at', 'desc');
+  }
+
+  async findRestaurantSettings(rid: string) {
+    const [resto, sub] = await Promise.all([
+      this.db('restaurants').select('id', 'name', 'slug', 'email', 'phone', 'address', 'city',
+        'country', 'currency', 'timezone', { taxRatePercent: 'tax_rate_percent' },
+        { serviceFeePercent: 'service_fee_percent' }, { openingHours: 'opening_hours' },
+        { paydunyaMode: 'paydunya_mode' }, 'paydunya_public_key', 'paydunya_private_key',
+        'paydunya_token', { printerSettingsJson: 'printer_settings_json' }, 'status',
+        { createdAt: 'created_at' }).where({ id: rid }).first(),
+      this.db('subscriptions as s').join('plans as p', 'p.id', 's.plan_id')
+        .select('s.id', 's.status', { billingCycle: 's.billing_cycle' },
+          { trialEndsAt: 's.trial_ends_at' }, { currentPeriodEnd: 's.current_period_end' },
+          { planName: 'p.name' }, { priceMonthlyXof: 'p.price_monthly_xof' })
+        .where('s.restaurant_id', rid).orderBy('s.created_at', 'desc').first(),
+    ]);
+    return { resto, sub };
+  }
+
+  async updateRestaurantSettings(rid: string, params: {
+    name: string | null; phone: string | null; address: string | null; city: string | null;
+    openingHours: string | null; taxRatePercent: number | null; paydunyaMode: string | null;
+    paydunyaPublicKey?: string; paydunyaPrivateKey?: string; paydunyaToken?: string;
+    printerSettingsJson?: string;
+  }) {
+    const patch: Record<string, unknown> = {};
+    const map: Record<string, keyof typeof params> = { name: 'name', phone: 'phone',
+      address: 'address', city: 'city', opening_hours: 'openingHours',
+      tax_rate_percent: 'taxRatePercent', paydunya_mode: 'paydunyaMode',
+      printer_settings_json: 'printerSettingsJson' };
+    for (const [column, key] of Object.entries(map)) if (params[key] !== null && params[key] !== undefined) patch[column] = params[key];
+    if (params.paydunyaPublicKey) patch.paydunya_public_key = params.paydunyaPublicKey;
+    if (params.paydunyaPrivateKey) patch.paydunya_private_key = params.paydunyaPrivateKey;
+    if (params.paydunyaToken) patch.paydunya_token = params.paydunyaToken;
+    if (Object.keys(patch).length) await this.db('restaurants').where({ id: rid }).update(patch);
+  }
+
+  async findTicketsForRestaurant(rid: string) {
+    return this.db('support_tickets').where({ restaurant_id: rid })
+      .select('id', 'subject', 'category', 'priority', 'status', { createdAt: 'created_at' })
+      .orderBy('created_at', 'desc');
+  }
+
+  async createSupportTicket(params: { rid: string; email: string; fullName: string;
+    role: string; subject: string; category: string; priority: string; message: string }) {
+    const id = generateId('tkt'); const now = new Date().toISOString();
+    await this.db.transaction(async trx => {
+      await trx('support_tickets').insert({ id, restaurant_id: params.rid,
+        created_by_email: params.email, subject: params.subject, category: params.category,
+        priority: params.priority, status: 'OPEN', created_at: now });
+      await trx('ticket_messages').insert({ id: generateId('tmsg'), ticket_id: id,
+        author: params.fullName, role: params.role, body: params.message, created_at: now });
+    });
+    return id;
+  }
+
   async findRestaurantTaxAndMode(rid: string) {
     return this.db('restaurants').select('tax_rate_percent', 'paydunya_mode').where({ id: rid }).first();
   }
