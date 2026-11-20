@@ -45,6 +45,7 @@ export interface ThermalPrintResponse {
   mode: 'BROWSER' | 'NETWORK_ESCPOS' | 'WEB_SERIAL';
   paperWidth: '58mm' | '80mm';
   previewText: string;
+  logoUrl?: string | null;
   base64Bytes: string;
   networkResult: { ok: boolean; bytesSent: number; error?: string } | null;
 }
@@ -88,7 +89,7 @@ export async function printViaWebSerial(bytes: Uint8Array): Promise<void> {
 }
 
 
-function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm') {
+function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm', logoUrl?: string | null) {
   const frame = document.createElement('iframe');
   frame.title = 'Ticket Resto’MAX';
   frame.style.position = 'fixed';
@@ -111,6 +112,17 @@ function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm') {
   const pre = doc.createElement('pre');
   pre.textContent = previewText;
   doc.head.appendChild(style);
+  if (logoUrl) {
+    const logo = doc.createElement('img');
+    logo.src = logoUrl;
+    logo.alt = 'Logo du restaurant';
+    logo.style.display = 'block';
+    logo.style.maxWidth = '55%';
+    logo.style.maxHeight = '22mm';
+    logo.style.objectFit = 'contain';
+    logo.style.margin = '0 auto 3mm';
+    doc.body.appendChild(logo);
+  }
   doc.body.appendChild(pre);
   doc.close();
   frame.contentWindow?.addEventListener('afterprint', () => frame.remove(), { once: true });
@@ -140,7 +152,7 @@ export async function executeThermalPrint(
 
   if (res.mode === 'WEB_SERIAL') {
     if (!supportsWebSerial()) {
-      printThermalPreview(res.previewText, res.paperWidth);
+      printThermalPreview(res.previewText, res.paperWidth, payload.kind === 'RECEIPT' ? res.logoUrl : null);
       return { ...res, dispatchedVia: 'BROWSER' };
     }
     const bytes = decodeBase64ToBytes(res.base64Bytes);
