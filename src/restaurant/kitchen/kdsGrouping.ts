@@ -109,16 +109,24 @@ export function countKdsStatuses(
     IN_PREPARATION: 0,
     READY: 0,
   };
-  const visible = filterKdsOrders(orders, stationFilter, 'ALL');
-  counts.ALL = visible.length;
-  for (const { order } of visible) {
-    if (
-      order.status === 'PENDING' ||
-      order.status === 'IN_PREPARATION' ||
-      order.status === 'READY'
-    ) {
-      counts[order.status as Extract<OrderStatus, 'PENDING' | 'IN_PREPARATION' | 'READY'>] += 1;
-    }
+  const statusByPrep: Record<OrderItem['prepStatus'], OrderStatus> = {
+    PENDING: 'PENDING',
+    PREPARING: 'IN_PREPARATION',
+    READY: 'READY',
+    SERVED: 'SERVED',
+  };
+  for (const order of orders) {
+    const items = order.items.filter((item) =>
+      item.prepStatus !== 'SERVED' &&
+      (stationFilter === 'ALL' ||
+        String(item.station || '').trim().toUpperCase() === stationFilter),
+    );
+    if (items.length === 0) continue;
+    counts.ALL += 1;
+    const statuses = new Set(items.map((item) => statusByPrep[item.prepStatus]));
+    if (statuses.has('PENDING')) counts.PENDING += 1;
+    if (statuses.has('IN_PREPARATION')) counts.IN_PREPARATION += 1;
+    if (statuses.has('READY')) counts.READY += 1;
   }
   return counts;
 }
