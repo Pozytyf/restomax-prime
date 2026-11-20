@@ -433,7 +433,8 @@ export function MenuCatalogPage() {
                         accept="image/jpeg,image/png,image/webp"
                         className="hidden"
                         onChange={async (e) => {
-                          const file = e.target.files?.[0];
+                          const input = e.currentTarget;
+                          const file = input.files?.[0];
                           if (!file) return;
                           try {
                             const imageUrl = await uploadRestaurantImage(file, 'menu');
@@ -446,7 +447,7 @@ export function MenuCatalogPage() {
                           } catch (err) {
                             notify(err instanceof Error ? err.message : 'Échec de l’envoi de la photo.', 'error');
                           } finally {
-                            e.currentTarget.value = '';
+                            input.value = '';
                           }
                         }}
                       />
