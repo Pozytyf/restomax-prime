@@ -31,6 +31,15 @@ export async function up(knex: Knex): Promise<void> {
   await knex.raw(
     'REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon, authenticated',
   );
+  await knex.raw(
+    'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated',
+  );
+  await knex.raw(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated',
+  );
+  await knex.raw(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated',
+  );
 
   for (const table of backendOnlyTables) {
     await knex.raw(
@@ -45,6 +54,15 @@ export async function down(knex: Knex): Promise<void> {
   // Restore only the grants this migration changed.
   await knex.raw(
     'GRANT TRUNCATE ON ALL TABLES IN SCHEMA public TO anon, authenticated',
+  );
+  await knex.raw(
+    'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated',
+  );
+  await knex.raw(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated',
+  );
+  await knex.raw(
+    'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated',
   );
   for (const table of backendOnlyTables) {
     await knex.raw(
