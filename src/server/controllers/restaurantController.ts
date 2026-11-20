@@ -59,7 +59,7 @@ export const restaurantController = {
     try {
       const menuItemId =
         typeof req.query.menuItemId === 'string' ? req.query.menuItemId : undefined;
-      const recipes = restaurantService.getRecipes(
+      const recipes = await restaurantService.getRecipes(
         req.auth!.restaurantId!,
         menuItemId,
       );
@@ -71,7 +71,7 @@ export const restaurantController = {
 
   async updateMenuItemRecipe(req: Request, res: Response) {
     try {
-      const recipes = restaurantService.updateMenuItemRecipe(
+      const recipes = await restaurantService.updateMenuItemRecipe(
         req.auth!,
         String(req.params.id),
         req.body || {},
@@ -84,7 +84,7 @@ export const restaurantController = {
 
   async getOrders(req: Request, res: Response) {
     try {
-      const orders = restaurantService.getOrders(req.auth!.restaurantId!);
+      const orders = await restaurantService.getOrders(req.auth!.restaurantId!);
       res.json({ orders });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement commandes.');
@@ -122,7 +122,7 @@ export const restaurantController = {
 
   async getPayments(req: Request, res: Response) {
     try {
-      const payments = restaurantService.getPayments(req.auth!.restaurantId!);
+      const payments = await restaurantService.getPayments(req.auth!.restaurantId!);
       res.json({ payments });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement paiements.');
@@ -157,7 +157,7 @@ export const restaurantController = {
 
   async getTables(req: Request, res: Response) {
     try {
-      const tables = restaurantService.getTables(req.auth!.restaurantId!);
+      const tables = await restaurantService.getTables(req.auth!.restaurantId!);
       res.json({ tables });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement tables.');
@@ -166,7 +166,7 @@ export const restaurantController = {
 
   async createTable(req: Request, res: Response) {
     try {
-      const result = restaurantService.createTable(
+      const result = await restaurantService.createTable(
         req.auth!.restaurantId!,
         req.body || {},
       );
@@ -191,7 +191,7 @@ export const restaurantController = {
 
   async regenerateTableQr(req: Request, res: Response) {
     try {
-      const result = restaurantService.regenerateTableQr(
+      const result = await restaurantService.regenerateTableQr(
         req.auth!,
         String(req.params.id),
       );
@@ -203,7 +203,7 @@ export const restaurantController = {
 
   async getStocks(req: Request, res: Response) {
     try {
-      const data = restaurantService.getStocks(req.auth!.restaurantId!);
+      const data = await restaurantService.getStocks(req.auth!.restaurantId!);
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement stocks.');
@@ -237,7 +237,7 @@ export const restaurantController = {
 
   async getStockAlertConfig(req: Request, res: Response) {
     try {
-      const data = restaurantService.getStockAlertConfig(
+      const data = await restaurantService.getStockAlertConfig(
         req.auth!.restaurantId!,
       );
       res.json(data);
@@ -252,7 +252,7 @@ export const restaurantController = {
 
   async updateStockAlertConfig(req: Request, res: Response) {
     try {
-      const settings = restaurantService.updateStockAlertConfig(
+      const settings = await restaurantService.updateStockAlertConfig(
         req.auth!,
         req.body || {},
       );
@@ -289,7 +289,7 @@ export const restaurantController = {
 
   async getNotifications(req: Request, res: Response) {
     try {
-      const data = restaurantService.getNotifications(req.auth!.restaurantId!);
+      const data = await restaurantService.getNotifications(req.auth!.restaurantId!);
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement notifications.');
@@ -310,7 +310,7 @@ export const restaurantController = {
 
   async getStaff(req: Request, res: Response) {
     try {
-      const data = restaurantService.getStaff(req.auth!.restaurantId!);
+      const data = await restaurantService.getStaff(req.auth!.restaurantId!);
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement équipe.');
@@ -319,7 +319,7 @@ export const restaurantController = {
 
   async createStaff(req: Request, res: Response) {
     try {
-      const result = restaurantService.createStaff(req.auth!, req.body || {});
+      const result = await restaurantService.createStaff(req.auth!, req.body || {});
       res.status(201).json(result);
     } catch (err) {
       handleControllerError(res, err, 'Erreur création employé.');
@@ -341,7 +341,7 @@ export const restaurantController = {
 
   async getCustomers(req: Request, res: Response) {
     try {
-      const customers = restaurantService.getCustomers(req.auth!.restaurantId!);
+      const customers = await restaurantService.getCustomers(req.auth!.restaurantId!);
       res.json({ customers });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement clients.');
@@ -350,7 +350,7 @@ export const restaurantController = {
 
   async createCustomer(req: Request, res: Response) {
     try {
-      const id = restaurantService.createCustomer(
+      const id = await restaurantService.createCustomer(
         req.auth!.restaurantId!,
         req.body || {},
       );
@@ -362,7 +362,7 @@ export const restaurantController = {
 
   async getReservations(req: Request, res: Response) {
     try {
-      const reservations = restaurantService.getReservations(
+      const reservations = await restaurantService.getReservations(
         req.auth!.restaurantId!,
       );
       res.json({ reservations });
@@ -373,7 +373,7 @@ export const restaurantController = {
 
   async createReservation(req: Request, res: Response) {
     try {
-      const id = restaurantService.createReservation(
+      const id = await restaurantService.createReservation(
         req.auth!.restaurantId!,
         req.body || {},
       );
@@ -385,7 +385,7 @@ export const restaurantController = {
 
   async updateReservationStatus(req: Request, res: Response) {
     try {
-      restaurantService.updateReservationStatus(
+      await restaurantService.updateReservationStatus(
         req.auth!.restaurantId!,
         String(req.params.id),
         req.body?.status,
@@ -398,7 +398,7 @@ export const restaurantController = {
 
   async getFinance(req: Request, res: Response) {
     try {
-      const data = restaurantService.getFinanceSummary(req.auth!.restaurantId!);
+      const data = await restaurantService.getFinanceSummary(req.auth!.restaurantId!);
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement finances.');
@@ -407,7 +407,7 @@ export const restaurantController = {
 
   async createExpense(req: Request, res: Response) {
     try {
-      const id = restaurantService.createExpense(
+      const id = await restaurantService.createExpense(
         req.auth!.restaurantId!,
         req.body || {},
       );
@@ -419,7 +419,7 @@ export const restaurantController = {
 
   async exportOrdersCsv(req: Request, res: Response) {
     try {
-      const csv = restaurantService.exportOrdersCsv(req.auth!.restaurantId!);
+      const csv = await restaurantService.exportOrdersCsv(req.auth!.restaurantId!);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader(
         'Content-Disposition',
@@ -433,7 +433,7 @@ export const restaurantController = {
 
   async getSettings(req: Request, res: Response) {
     try {
-      const data = restaurantService.getSettings(req.auth!.restaurantId!);
+      const data = await restaurantService.getSettings(req.auth!.restaurantId!);
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement paramètres.');
@@ -442,7 +442,7 @@ export const restaurantController = {
 
   async updateSettings(req: Request, res: Response) {
     try {
-      restaurantService.updateSettings(req.auth!, req.body || {});
+      await restaurantService.updateSettings(req.auth!, req.body || {});
       res.json({ ok: true });
     } catch (err) {
       handleControllerError(res, err, 'Erreur mise à jour paramètres.');
@@ -463,7 +463,7 @@ export const restaurantController = {
 
   async getTickets(req: Request, res: Response) {
     try {
-      const tickets = restaurantService.getTickets(req.auth!.restaurantId!);
+      const tickets = await restaurantService.getTickets(req.auth!.restaurantId!);
       res.json({ tickets });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement tickets.');
@@ -472,7 +472,7 @@ export const restaurantController = {
 
   async createTicket(req: Request, res: Response) {
     try {
-      const id = restaurantService.createTicket(req.auth!, req.body || {});
+      const id = await restaurantService.createTicket(req.auth!, req.body || {});
       res.status(201).json({ id });
     } catch (err) {
       handleControllerError(res, err, 'Erreur création ticket.');
