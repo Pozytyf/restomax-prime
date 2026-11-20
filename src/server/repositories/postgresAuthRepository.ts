@@ -89,7 +89,7 @@ export class PostgresAuthRepository {
       .update({ revoked_at: new Date().toISOString() });
   }
 
-  async recordAudit(params: AuditRecord, trx: Knex.Transaction = this.db) {
+  async recordAudit(params: AuditRecord, trx: Knex | Knex.Transaction = this.db) {
     await trx('audit_logs').insert({
       id: generateId('aud'), actor_user_id: params.actorUserId,
       actor_email: params.actorEmail, actor_role: params.actorRole,
