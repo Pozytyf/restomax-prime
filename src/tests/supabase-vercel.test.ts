@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import knex from 'knex';
 import request from 'supertest';
 import { createExpressApp } from '../server/app.ts';
-import { setTestDb } from '../server/db.ts';
+import { getDb, setTestDb } from '../server/db.ts';
 import { buildPostgresKnexConfig } from '../server/db/knexfile.ts';
 import {
   getSupabaseAdminClient,
@@ -186,6 +186,17 @@ test('4. Full Knex migration 0004 runs cleanly and Vercel config + api/index.ts 
   const apiEntryPath = path.resolve(process.cwd(), 'api/index.ts');
   assert.equal(fs.existsSync(vercelJsonPath), true);
   assert.equal(fs.existsSync(apiEntryPath), true);
+  const apiEntry = fs.readFileSync(apiEntryPath, 'utf8');
+  assert.equal(apiEntry.includes("RESTOMAX_POSTGRES_CUTOVER === 'true'"), true);
+  assert.equal(apiEntry.includes('Fail closed: never fall back to ephemeral SQLite'), true);
+  const previousCutover = process.env.RESTOMAX_POSTGRES_CUTOVER;
+  try {
+    process.env.RESTOMAX_POSTGRES_CUTOVER = 'true';
+    assert.throws(() => getDb(), /SQLite access is disabled after the PostgreSQL cutover/);
+  } finally {
+    if (previousCutover === undefined) delete process.env.RESTOMAX_POSTGRES_CUTOVER;
+    else process.env.RESTOMAX_POSTGRES_CUTOVER = previousCutover;
+  }
 
   const vercelConfig = JSON.parse(fs.readFileSync(vercelJsonPath, 'utf8')) as {
     framework: string;
