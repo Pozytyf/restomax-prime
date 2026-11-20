@@ -7,7 +7,10 @@ import { hasPermission, resolveEffectivePermissions } from './rbac.ts';
 import type { Permission, RestaurantStatus, Role, UserStatus } from '../types/index.ts';
 
 const JWT_SECRET =
-  process.env.JWT_SECRET || 'restomax-dev-secret-do-not-use-in-prod';
+  process.env.JWT_SECRET ??
+  (process.env.NODE_ENV === 'production'
+    ? (() => { throw new Error('JWT_SECRET must be configured in production.'); })()
+    : 'restomax-local-development-only-secret');
 
 export interface AuthContext {
   sessionId: string;
