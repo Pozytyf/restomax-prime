@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: restomax-prime-test
+    runtime: node
+    region: frankfurt
+    plan: free
+    branch: migration/postgres-native
+    autoDeploy: false
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_CLIENT
+        value: pg
+      - key: DATABASE_SSL
+        value: "true"
+      - key: RESTOMAX_POSTGRES_CUTOVER
+        value: "true"
+      - key: DB_POOL_MIN
+        value: "0"
+      - key: DB_POOL_MAX
+        value: "5"
+      - key: PAYMENT_MODE
+        value: TEST
+      - key: DISABLE_HMR
+        value: "true"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
