@@ -1495,7 +1495,7 @@ export class RestaurantRepository extends BaseRepository {
       .prepare(
         `SELECT id, name, slug, email, phone, address, city, country, currency, timezone,
                 tax_rate_percent as taxRatePercent, service_fee_percent as serviceFeePercent,
-                opening_hours as openingHours, paydunya_mode as paydunyaMode,
+                opening_hours as openingHours, logo_url as logoUrl, paydunya_mode as paydunyaMode,
                 paydunya_public_key, paydunya_private_key, paydunya_token,
                 printer_settings_json as printerSettingsJson, status, created_at as createdAt
          FROM restaurants WHERE id = ?`,
@@ -1530,6 +1530,7 @@ export class RestaurantRepository extends BaseRepository {
       paydunyaPrivateKey?: string;
       paydunyaToken?: string;
       printerSettingsJson?: string;
+      logoUrl?: string | null;
     },
   ) {
     const db = getDb();
@@ -1542,7 +1543,8 @@ export class RestaurantRepository extends BaseRepository {
            opening_hours = COALESCE(?, opening_hours),
            tax_rate_percent = COALESCE(?, tax_rate_percent),
            paydunya_mode = COALESCE(?, paydunya_mode),
-           printer_settings_json = COALESCE(?, printer_settings_json)
+           printer_settings_json = COALESCE(?, printer_settings_json),
+           logo_url = COALESCE(?, logo_url)
        WHERE id = ?`,
     ).run(
       params.name,
@@ -1553,6 +1555,7 @@ export class RestaurantRepository extends BaseRepository {
       params.taxRatePercent,
       params.paydunyaMode,
       params.printerSettingsJson ?? null,
+      params.logoUrl ?? null,
       rid,
     );
 
