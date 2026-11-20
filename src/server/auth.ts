@@ -199,7 +199,7 @@ export function resolveAuthContext(
 
 export async function resolvePostgresAuthContext(token: string): Promise<AuthContext | null> {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { sessionId: string; userId: string };
+    const decoded = jwt.verify(token, getJwtSecret()) as { sessionId: string; userId: string };
     const db = getKnex();
     const session = await db('sessions as s')
       .join('users as u', 'u.id', 's.user_id')
