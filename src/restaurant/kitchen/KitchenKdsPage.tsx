@@ -300,7 +300,7 @@ export function KitchenKdsPage() {
 
   return (
     <RestaurantLayout
-      title={t('kitchen.title')}
+      title={fixedStation === 'BAR' ? 'Poste Bar' : fixedStation === 'KITCHEN' ? 'Poste Cuisine' : t('kitchen.title')}
       onRealtimeEvent={load}
       actions={
         <div className="flex flex-wrap items-center gap-2">
