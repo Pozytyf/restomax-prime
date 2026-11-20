@@ -7,6 +7,9 @@ import bcrypt from 'bcryptjs';
 let singletonDb: SqliteDatabase | null = null;
 
 export function getDb(customPath?: string): SqliteDatabase {
+  if (process.env.RESTOMAX_POSTGRES_CUTOVER === 'true' && !customPath) {
+    throw new Error('SQLite access is disabled after the PostgreSQL cutover.');
+  }
   if (singletonDb && !customPath) {
     return singletonDb;
   }
