@@ -543,6 +543,11 @@ export class PostgresRestaurantRepository {
       .where('m.id', menuItemId).andWhere('m.restaurant_id', rid).first();
   }
 
+  async findPaymentByIdempotencyKey(rid: string, key: string) {
+    return this.db('payments').select('id', 'reference', 'amount_xof')
+      .where({ restaurant_id: rid, idempotency_key: key }).first();
+  }
+
   async findOrderByIdempotencyKey(rid: string, key: string) {
     return this.db('orders').select('id', 'order_number', 'total_xof', 'status')
       .where({ restaurant_id: rid, idempotency_key: key }).first();
