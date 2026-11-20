@@ -21,13 +21,24 @@ test('1. Supabase DB URL detection & automatic SSL config in Knex', () => {
   assert.equal(isSupabaseDbUrl(supabaseUrl), true);
   assert.equal(isSupabaseDbUrl('postgres://localhost:5432/restomax'), false);
 
-  const cfg = buildPostgresKnexConfig(supabaseUrl);
-  assert.equal(cfg.client, 'pg');
-  assert.equal((cfg.pool as { max: number }).max, 1);
-  assert.deepEqual(
-    (cfg.connection as { ssl: unknown }).ssl,
-    { rejectUnauthorized: false },
-  );
+  const previousVercel = process.env.VERCEL;
+  const previousPoolMax = process.env.DB_POOL_MAX;
+  try {
+    process.env.VERCEL = '1';
+    delete process.env.DB_POOL_MAX;
+    const cfg = buildPostgresKnexConfig(supabaseUrl);
+    assert.equal(cfg.client, 'pg');
+    assert.equal((cfg.pool as { max: number }).max, 1);
+    assert.deepEqual(
+      (cfg.connection as { ssl: unknown }).ssl,
+      { rejectUnauthorized: false },
+    );
+  } finally {
+    if (previousVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previousVercel;
+    if (previousPoolMax === undefined) delete process.env.DB_POOL_MAX;
+    else process.env.DB_POOL_MAX = previousPoolMax;
+  }
 });
 
 test('2. Supabase runtime config & Admin client initialization', () => {
