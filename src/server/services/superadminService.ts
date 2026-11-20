@@ -60,11 +60,12 @@ export class SuperadminService extends BaseService<SuperadminRepository> {
 
   async createRestaurant(auth: AuthContext, body: Record<string, unknown>) {
     if (isPostgresMode()) return this.createRestaurantPostgres(auth, body);
-    const { name, city, ownerName, ownerEmail, phone, planCode } = body || {};
+    const { name, city, ownerName, ownerEmail, phone, planCode, initialPassword } = body || {};
     if (
       typeof name !== 'string' ||
       typeof ownerName !== 'string' ||
-      typeof ownerEmail !== 'string'
+      typeof ownerEmail !== 'string' ||
+      typeof initialPassword !== 'string' || initialPassword.length < 12
     ) {
       throw new AppError(400, 'Nom, propriétaire et email requis.');
     }
@@ -95,7 +96,7 @@ export class SuperadminService extends BaseService<SuperadminRepository> {
         phone: String(phone || ''),
         city: String(city || 'Abidjan'),
         ownerName: ownerName.trim(),
-        passwordHash: bcrypt.hashSync('RestoMax2026!', 10),
+        passwordHash: bcrypt.hashSync(initialPassword, 10),
         planId: plan.id,
         now,
         periodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
@@ -385,10 +386,11 @@ export class SuperadminService extends BaseService<SuperadminRepository> {
     });
   }
   private async createRestaurantPostgres(auth: AuthContext, body: Record<string, unknown>) {
-    const { name, city, ownerName, ownerEmail, phone, planCode } = body || {};
+    const { name, city, ownerName, ownerEmail, phone, planCode, initialPassword } = body || {};
     if (typeof name !== 'string' || name.trim().length < 2 ||
         typeof ownerName !== 'string' || ownerName.trim().length < 2 ||
-        typeof ownerEmail !== 'string' || !ownerEmail.includes('@')) {
+        typeof ownerEmail !== 'string' || !ownerEmail.includes('@') ||
+        typeof initialPassword !== 'string' || initialPassword.length < 12) {
       throw new AppError(400, 'Nom, propriétaire et email requis.');
     }
     const cleanEmail = ownerEmail.trim().toLowerCase();
@@ -402,7 +404,7 @@ export class SuperadminService extends BaseService<SuperadminRepository> {
       await postgresSuperadminRepository.createRestaurantAdmin({
         rid, uid, name: name.trim(), slug, cleanEmail, phone: String(phone || ''),
         city: String(city || 'Abidjan'), ownerName: ownerName.trim(),
-        passwordHash: await bcrypt.hash('RestoMax2026!', 10), planId: plan.id,
+        passwordHash: await bcrypt.hash(initialPassword, 10), planId: plan.id,
         now, periodEnd: new Date(Date.now() + 30 * 86400000).toISOString(),
         actorUserId: auth.userId, actorEmail: auth.email,
       });
