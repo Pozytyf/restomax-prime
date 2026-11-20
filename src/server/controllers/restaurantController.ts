@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { restaurantService } from '../services/restaurantService.ts';
 import { handleControllerError } from '../services/errors.ts';
+import { createRestaurantImageUpload } from '../services/neonStorage.ts';
 
 export const restaurantController = {
   async getDashboard(req: Request, res: Response) {
@@ -30,6 +31,20 @@ export const restaurantController = {
       res.status(201).json({ category });
     } catch (err) {
       handleControllerError(res, err, 'Erreur création catégorie.');
+    }
+  },
+
+  async createImageUploadUrl(req: Request, res: Response) {
+    try {
+      const upload = createRestaurantImageUpload(
+        req.auth!.restaurantId!,
+        req.body?.kind,
+        req.body?.contentType,
+        req.body?.size,
+      );
+      res.json(upload);
+    } catch (err) {
+      handleControllerError(res, err, 'Erreur préparation upload image.');
     }
   },
 
