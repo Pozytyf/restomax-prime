@@ -473,7 +473,7 @@ export class PostgresRestaurantRepository {
     const [resto, sub] = await Promise.all([
       this.db('restaurants').select('id', 'name', 'slug', 'email', 'phone', 'address', 'city',
         'country', 'currency', 'timezone', { taxRatePercent: 'tax_rate_percent' },
-        { serviceFeePercent: 'service_fee_percent' }, { openingHours: 'opening_hours' },
+        { serviceFeePercent: 'service_fee_percent' }, { openingHours: 'opening_hours' }, { logoUrl: 'logo_url' },
         { paydunyaMode: 'paydunya_mode' }, 'paydunya_public_key', 'paydunya_private_key',
         'paydunya_token', { printerSettingsJson: 'printer_settings_json' }, 'status',
         { createdAt: 'created_at' }).where({ id: rid }).first(),
@@ -488,7 +488,7 @@ export class PostgresRestaurantRepository {
 
   async updateRestaurantSettings(rid: string, params: {
     name: string | null; phone: string | null; address: string | null; city: string | null;
-    openingHours: string | null; taxRatePercent: number | null; paydunyaMode: string | null;
+    openingHours: string | null; taxRatePercent: number | null; paydunyaMode: string | null; logoUrl?: string | null;
     paydunyaPublicKey?: string; paydunyaPrivateKey?: string; paydunyaToken?: string;
     printerSettingsJson?: string;
   }) {
@@ -496,7 +496,7 @@ export class PostgresRestaurantRepository {
     const map: Record<string, keyof typeof params> = { name: 'name', phone: 'phone',
       address: 'address', city: 'city', opening_hours: 'openingHours',
       tax_rate_percent: 'taxRatePercent', paydunya_mode: 'paydunyaMode',
-      printer_settings_json: 'printerSettingsJson' };
+      printer_settings_json: 'printerSettingsJson', logo_url: 'logoUrl' };
     for (const [column, key] of Object.entries(map)) if (params[key] !== null && params[key] !== undefined) patch[column] = params[key];
     if (params.paydunyaPublicKey) patch.paydunya_public_key = params.paydunyaPublicKey;
     if (params.paydunyaPrivateKey) patch.paydunya_private_key = params.paydunyaPrivateKey;
