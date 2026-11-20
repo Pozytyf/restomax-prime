@@ -1551,6 +1551,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         email: resto.email,
         phone: resto.phone,
         address: resto.address,
+        logoUrl: resto.logoUrl || null,
         city: resto.city,
         country: resto.country,
         currency: resto.currency,
@@ -1586,6 +1587,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       paydunyaPrivateKey,
       paydunyaToken,
       printerSettings,
+      logoUrl,
     } = body || {};
 
     let printerSettingsJson: string | undefined;
@@ -1612,6 +1614,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         : undefined,
       paydunyaToken: paydunyaToken ? String(paydunyaToken) : undefined,
       printerSettingsJson,
+      logoUrl: typeof logoUrl === 'string' ? logoUrl : undefined,
     };
     if (isPostgresMode()) {
       await postgresRestaurantRepository.updateRestaurantSettings(rid, settingsUpdate);
