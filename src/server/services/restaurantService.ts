@@ -1208,12 +1208,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async testStockAlertEmail(auth: AuthContext) {
     const rid = auth.restaurantId!;
-    const settings = restaurantRepository.findStockAlertSettings(rid);
-    const recipients = await this.resolveStockAlertRecipients(
-      rid,
-      settings.recipientEmails,
-    );
-    const restaurantName = restaurantRepository.findRestaurantNameById(rid);
+    const settings = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
+    const recipients = await this.resolveStockAlertRecipients(rid, settings.recipientEmails);
+    const restaurantName = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantNameById(rid) : restaurantRepository.findRestaurantNameById(rid);
     const res = await sendSmtpTestEmail({
       restaurantName,
       recipients,
