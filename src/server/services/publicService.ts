@@ -616,7 +616,15 @@ export class PublicService extends BaseService<PublicRepository> {
       }
       throw new AppError(500, 'Erreur lors de l’envoi de la commande.');
     }
-    if (deduction.deductedCount > 0) broadcastRestaurantEvent(restaurantId, 'stock:updated', { orderId, orderNumber, deductedCount: deduction.deductedCount });
+    if (deduction.deductedCount > 0) {
+      broadcastRestaurantEvent(restaurantId, 'stock:updated', { orderId, orderNumber, deductedCount: deduction.deductedCount });
+      for (const low of deduction.lowStocksTriggered) {
+        await restaurantService.dispatchCriticalStockAlert({
+          restaurantId, stockId: low.id, stockName: low.name, quantity: low.quantity,
+          minThreshold: low.minThreshold, unit: low.unit, supplierName: low.supplierName,
+        });
+      }
+    }
     broadcastRestaurantEvent(restaurantId, 'order:created', { orderId, orderNumber, orderType: 'QR_TABLE', tableId, totalXof });
     broadcastRestaurantEvent(restaurantId, 'table:updated', { tableId, status: 'OCCUPIED' });
     return { deduplicated: false, order: { id: orderId, orderNumber,
