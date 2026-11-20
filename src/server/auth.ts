@@ -6,11 +6,14 @@ import { getKnex } from './knex.ts';
 import { hasPermission, resolveEffectivePermissions } from './rbac.ts';
 import type { Permission, RestaurantStatus, Role, UserStatus } from '../types/index.ts';
 
-const JWT_SECRET =
-  process.env.JWT_SECRET ??
-  (process.env.NODE_ENV === 'production'
-    ? (() => { throw new Error('JWT_SECRET must be configured in production.'); })()
-    : 'restomax-local-development-only-secret');
+function getJwtSecret(): string {
+  const configured = process.env.JWT_SECRET?.trim();
+  if (configured && configured.length >= 32) return configured;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be configured in production with at least 32 characters.');
+  }
+  return 'restomax-local-development-only-secret';
+}
 
 export interface AuthContext {
   sessionId: string;
@@ -38,7 +41,7 @@ export function signSessionToken(payload: {
   sessionId: string;
   userId: string;
 }): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign(payload, getJwtSecret(), { expiresIn: '7d' });
 }
 
 export function extractToken(req: Request): string | null {
@@ -90,7 +93,7 @@ export function resolveAuthContext(
   token: string,
 ): AuthContext | null {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as {
+    const decoded = jwt.verify(token, getJwtSecret()) as {
       sessionId: string;
       userId: string;
     };
