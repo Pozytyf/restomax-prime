@@ -1,5 +1,6 @@
 import { getDb, generateId } from '../db.ts';
 import { BaseRepository } from './BaseRepository.ts';
+import { AppError } from '../services/errors.ts';
 import type { Permission, Role } from '../../types/index.ts';
 
 export class RestaurantRepository extends BaseRepository {
