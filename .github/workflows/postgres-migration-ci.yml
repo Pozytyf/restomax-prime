@@ -35,3 +35,5 @@ jobs:
         run: npm run test:auth-repository
       - name: Restaurant repository transaction tests
         run: npm run test:restaurant-repository
+      - name: Public QR repository transaction tests
+        run: npm run test:public-repository
