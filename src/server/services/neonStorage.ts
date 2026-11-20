@@ -69,3 +69,9 @@ export function createRestaurantImageUpload(rid: string, kind: unknown, mime: un
   const publicUrl = `${endpointUrl.origin}${encodedPath}`;
   return { key, uploadUrl, publicUrl, method: 'PUT' as const, contentType, maxBytes: MAX_UPLOAD_BYTES };
 }
+
+export function isRestaurantImageUrl(rid: string, kind: 'menu' | 'logo', value: unknown): value is string {
+  if (typeof value !== 'string' || !process.env.AWS_ENDPOINT_URL_S3) return false;
+  const expectedPrefix = `${process.env.AWS_ENDPOINT_URL_S3.replace(/\\/$/, '')}/${BUCKET}/${rid}/${kind}/`;
+  return value.startsWith(expectedPrefix) && !value.includes('..');
+}
