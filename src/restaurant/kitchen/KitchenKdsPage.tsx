@@ -122,8 +122,9 @@ export function KitchenKdsPage() {
     apiFetch<{ orders: Order[] }>('/api/restaurant/orders')
       .then((res) => {
         setOrders(
-          res.orders.filter((o) =>
-            ['PENDING', 'IN_PREPARATION', 'READY'].includes(o.status),
+          res.orders.filter((order) =>
+            order.status !== 'CANCELLED' &&
+            order.items.some((item) => item.prepStatus !== 'SERVED'),
           ),
         );
         setNowMs(Date.now());
