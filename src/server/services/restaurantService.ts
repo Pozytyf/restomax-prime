@@ -61,7 +61,12 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     super(repo);
   }
 
-  getDashboard(rid: string) {
+  async getDashboard(rid: string) {
+    if (isPostgresMode()) {
+      this.ensureTenantId(rid);
+      const { revenueRow, pendingRow, tablesStats, revenueSeries, topItems, lowStocks, paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow } = await postgresRestaurantRepository.getDashboardMetrics(rid);
+      return { kpis: { totalRevenueXof: Number(revenueRow.total_revenue), collectedXof: Number(collectedRow.total_paid || 0), expensesXof: Number(expensesRow.total_expenses || 0), ordersCount: Number(revenueRow.orders_count), avgBasketXof: Math.round(Number(revenueRow.avg_basket)), pendingOrdersCount: Number(pendingRow.c), tablesTotal: Number(tablesStats.total), tablesOccupied: Number(tablesStats.occupied || 0), tablesReserved: Number(tablesStats.reserved || 0) }, revenueSeries, topItems, lowStocks, paymentBreakdown, recentOrders, staffActivity };
+    }
     this.ensureTenantId(rid);
     const {
       revenueRow,
@@ -98,7 +103,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  getMenu(rid: string) {
+  async getMenu(rid: string) {
+    if (isPostgresMode()) {
+      const [categories, itemsRaw, recipes] = await Promise.all([postgresRestaurantRepository.findMenuCategories(rid), postgresRestaurantRepository.findMenuItems(rid), postgresRestaurantRepository.findMenuRecipes(rid)]);
+      const byItem = new Map<string, typeof recipes>();
+      for (const recipe of recipes) { const list = byItem.get(recipe.menuItemId) || []; list.push(recipe); byItem.set(recipe.menuItemId, list); }
+      return { categories: categories.map(c => ({ ...c, active: Boolean(c.active) })), items: itemsRaw.map(item => ({ ...item, available: Boolean(item.available), options: JSON.parse(String(item.options_json || '[]')), recipeLines: byItem.get(String(item.id)) || [] })) };
+    }
     const categories = restaurantRepository.findMenuCategories(rid);
     const itemsRaw = restaurantRepository.findMenuItems(rid);
     const recipes = restaurantRepository.findMenuRecipes(rid);
@@ -119,17 +130,38 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  getRecipes(rid: string, menuItemId?: string) {
+  async getRecipes(rid: string, menuItemId?: string) {
+    if (isPostgresMode()) { this.ensureTenantId(rid); return postgresRestaurantRepository.findMenuRecipes(rid, menuItemId); }
     this.ensureTenantId(rid);
     return restaurantRepository.findMenuRecipes(rid, menuItemId);
   }
 
-  updateMenuItemRecipe(
+  async updateMenuItemRecipe(
     auth: AuthContext,
     menuItemId: string,
     body: Record<string, unknown>,
   ) {
     const rid = auth.restaurantId!;
+    if (isPostgresMode()) {
+      if (!await postgresRestaurantRepository.findMenuItemById(menuItemId, rid)) throw new AppError(404, 'Article du menu introuvable.');
+      const rawLines = Array.isArray(body?.lines) ? body.lines : [];
+      const cleanMap = new Map<string, number>();
+      for (const raw of rawLines) {
+        const row = raw as { stockId?: unknown; quantityPerUnit?: unknown };
+        const stockId = typeof row.stockId === 'string' ? row.stockId.trim() : '';
+        const qty = Number(row.quantityPerUnit);
+        if (!stockId || !Number.isFinite(qty) || qty <= 0) continue;
+        if (!await postgresRestaurantRepository.findStockById(stockId, rid)) throw new AppError(404, 'Ingrédient introuvable pour cet établissement.');
+        cleanMap.set(stockId, Math.round(qty * 1000) / 1000);
+      }
+      const saved = await postgresRestaurantRepository.replaceMenuItemRecipe(rid, menuItemId,
+        Array.from(cleanMap.entries()).map(([stockId, quantityPerUnit]) => ({ stockId, quantityPerUnit })));
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
+        actorRole: auth.role, restaurantId: rid, action: 'MENU_RECIPE_UPDATED',
+        targetType: 'MENU_ITEM', targetId: menuItemId, details: `${saved.length} ingrédient(s) lié(s)` });
+      broadcastRestaurantEvent(rid, 'menu:updated', { itemId: menuItemId });
+      return saved;
+    }
     const item = restaurantRepository.findMenuItemById(menuItemId, rid);
     if (!item) {
       throw new AppError(404, 'Article du menu introuvable.');
@@ -175,12 +207,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return saved;
   }
 
-  createCategory(rid: string, body: Record<string, unknown>) {
+  async createCategory(rid: string, body: Record<string, unknown>) {
     const { name, station } = body || {};
     if (typeof name !== 'string' || name.trim().length < 2) {
       throw new AppError(400, 'Nom de catégorie requis.');
     }
     const st = station === 'BAR' ? 'BAR' : 'KITCHEN';
+    if (isPostgresMode()) {
+      const count = await postgresRestaurantRepository.countCategories(rid);
+      const id = await postgresRestaurantRepository.createCategory(rid, name.trim(), st, count + 1);
+      return { id, restaurantId: rid, name: name.trim(), station: st, sortOrder: count + 1, active: true };
+    }
     const count = restaurantRepository.countCategories(rid);
     const id = restaurantRepository.createCategory(
       rid,
@@ -198,7 +235,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  createMenuItem(auth: AuthContext, body: Record<string, unknown>) {
+  async createMenuItem(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const { categoryId, name, description, priceXof, costPriceXof, options } =
       body || {};
@@ -212,6 +249,22 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       throw new AppError(400, 'Données du produit invalides.');
     }
 
+    if (isPostgresMode()) {
+      if (!await postgresRestaurantRepository.findCategory(categoryId, rid)) throw new AppError(404, 'Catégorie introuvable.');
+      const cleanOptions = Array.isArray(options) ? options.map((o: { label?: string; priceDeltaXof?: number }) => ({
+        id: generateId('opt'), label: String(o.label || '').trim(),
+        priceDeltaXof: Math.max(0, Math.round(Number(o.priceDeltaXof || 0))),
+      })) : [];
+      const roundedPrice = Math.round(Number(priceXof));
+      const id = await postgresRestaurantRepository.createMenuItem({ rid, categoryId,
+        name: name.trim(), description: String(description || '').trim(),
+        priceXof: roundedPrice, costPriceXof: Math.max(0, Math.round(Number(costPriceXof || 0))),
+        optionsJson: JSON.stringify(cleanOptions) });
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
+        actorRole: auth.role, restaurantId: rid, action: 'MENU_ITEM_CREATED',
+        targetType: 'MENU_ITEM', targetId: id, details: `${name.trim()} (${roundedPrice} FCFA)` });
+      return id;
+    }
     const cat = restaurantRepository.findCategory(categoryId, rid);
     if (!cat) {
       throw new AppError(404, 'Catégorie introuvable.');
@@ -250,7 +303,19 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return id;
   }
 
-  updateMenuItem(rid: string, itemId: string, body: Record<string, unknown>) {
+  async updateMenuItem(rid: string, itemId: string, body: Record<string, unknown>) {
+    if (isPostgresMode()) {
+      if (!await postgresRestaurantRepository.findMenuItemById(itemId, rid)) throw new AppError(404, 'Article introuvable.');
+      const { available, priceXof, name, description } = body || {};
+      await postgresRestaurantRepository.updateMenuItem(itemId, rid, {
+        available: typeof available === 'boolean' ? available : undefined,
+        priceXof: Number.isFinite(Number(priceXof)) && Number(priceXof) >= 0 ? Math.round(Number(priceXof)) : undefined,
+        name: typeof name === 'string' && name.trim().length >= 2 ? name.trim() : undefined,
+        description: typeof description === 'string' ? description.trim() : undefined,
+      });
+      broadcastRestaurantEvent(rid, 'menu:updated', { itemId });
+      return;
+    }
     const existing = restaurantRepository.findMenuItemById(itemId, rid);
     if (!existing) {
       throw new AppError(404, 'Article introuvable.');
