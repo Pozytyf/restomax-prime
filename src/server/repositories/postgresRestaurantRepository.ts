@@ -81,12 +81,12 @@ export class PostgresRestaurantRepository {
   }
 
   async createMenuItem(params: { rid: string; categoryId: string; name: string;
-    description: string; priceXof: number; costPriceXof: number; optionsJson: string }) {
+    description: string; priceXof: number; costPriceXof: number; optionsJson: string; imageUrl?: string | null }) {
     const id = generateId('itm');
     await this.db('menu_items').insert({ id, restaurant_id: params.rid,
       category_id: params.categoryId, name: params.name, description: params.description,
       price_xof: params.priceXof, cost_price_xof: params.costPriceXof,
-      image_url: null, available: 1, sort_order: 99, options_json: params.optionsJson,
+      image_url: params.imageUrl || null, available: 1, sort_order: 99, options_json: params.optionsJson,
       created_at: new Date().toISOString() });
     return id;
   }
@@ -96,13 +96,14 @@ export class PostgresRestaurantRepository {
   }
 
   async updateMenuItem(itemId: string, rid: string, updates: {
-    available?: boolean; priceXof?: number; name?: string; description?: string;
+    available?: boolean; priceXof?: number; name?: string; description?: string; imageUrl?: string;
   }) {
     const patch: Record<string, unknown> = {};
     if (typeof updates.available === 'boolean') patch.available = updates.available ? 1 : 0;
     if (updates.priceXof !== undefined) patch.price_xof = updates.priceXof;
     if (updates.name !== undefined) patch.name = updates.name;
     if (updates.description !== undefined) patch.description = updates.description;
+    if (updates.imageUrl !== undefined) patch.image_url = updates.imageUrl;
     if (Object.keys(patch).length) await this.db('menu_items').where({ id: itemId, restaurant_id: rid }).update(patch);
   }
 
