@@ -1793,10 +1793,14 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       if (error instanceof AppError) throw error;
       throw new AppError(500, 'Erreur création commande.');
     }
-    if (deduction.deductedCount > 0) broadcastRestaurantEvent(rid, 'stock:updated', {
-      orderId, orderNumber, deductedCount: deduction.deductedCount,
-    });
-    // Low-stock notification delivery is migrated with the notification subsystem.
+    if (deduction.deductedCount > 0) {
+      broadcastRestaurantEvent(rid, 'stock:updated', { orderId, orderNumber, deductedCount: deduction.deductedCount });
+      for (const low of deduction.lowStocksTriggered) {
+        await this.dispatchCriticalStockAlert({ restaurantId: rid, auth,
+          stockId: low.id, stockName: low.name, quantity: low.quantity,
+          minThreshold: low.minThreshold, unit: low.unit, supplierName: low.supplierName });
+      }
+    }
     broadcastRestaurantEvent(rid, 'order:created', { orderId, orderNumber, totalXof });
     return { deduplicated: false, order: { id: orderId, orderNumber, totalXof,
       status: 'PENDING', items: lines } };
@@ -1812,12 +1816,21 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     const mode = resto?.paydunya_mode === 'LIVE' ? 'LIVE' : 'TEST';
     const reference = `${mode}-${String(method).slice(0, 4)}-${Math.floor(100000 + Math.random() * 900000)}`;
     const now = new Date().toISOString();
-    const result = await postgresRestaurantRepository.recordPaymentTransaction({
-      rid, orderId, paymentId: generateId('pay'), amountXof: amount,
-      method: String(method), mode, reference,
-      idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
-      userId: auth.userId, actorEmail: auth.email, actorRole: auth.role, now,
-    });
+    let result;
+    try {
+      result = await postgresRestaurantRepository.recordPaymentTransaction({
+        rid, orderId, paymentId: generateId('pay'), amountXof: amount,
+        method: String(method), mode, reference,
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+        userId: auth.userId, actorEmail: auth.email, actorRole: auth.role, now,
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === '23505' && idempotencyKey) {
+        const existing = await postgresRestaurantRepository.findPaymentByIdempotencyKey(rid, String(idempotencyKey));
+        if (existing) return { payment: existing, deduplicated: true };
+      }
+      throw error;
+    }
     if (result.deduplicated) return { payment: result.payment, deduplicated: true };
     const payment = result.payment;
     broadcastRestaurantEvent(rid, 'payment:created', { orderId, paymentId: payment.id, amountXof: amount, fullyPaid: payment.fullyPaid });
