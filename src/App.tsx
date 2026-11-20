@@ -138,6 +138,14 @@ export default function App() {
               }
             />
             <Route
+              path="/app/bar"
+              element={
+                <ProtectedRoute permission="kitchen:read">
+                  <KitchenKdsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/app/menu"
               element={
                 <ProtectedRoute permission="menu:read">
