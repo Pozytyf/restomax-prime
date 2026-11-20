@@ -1692,6 +1692,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
                 ],
           });
 
+    let printBytes = formatted.bytes;
+    if (kind === 'RECEIPT' && typeof body?.logoRasterBase64 === 'string') {
+      const raster = body.logoRasterBase64;
+      if (raster.length <= 400_000 && /^[A-Za-z0-9+/]*={0,2}$/.test(raster)) {
+        const rasterBytes = Buffer.from(raster, 'base64');
+        if (rasterBytes.length > 13 && rasterBytes.length <= 300_000) {
+          printBytes = new Uint8Array(Buffer.concat([rasterBytes, Buffer.from(formatted.bytes)]));
+        }
+      }
+    }
+
     const overrideHost =
       typeof body?.printerHost === 'string' && body.printerHost.trim()
         ? body.printerHost.trim()
@@ -1708,7 +1719,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       networkResult = await sendRawBytesOverTcp(
         overrideHost,
         overridePort,
-        formatted.bytes,
+        printBytes,
       );
     }
 
@@ -1718,7 +1729,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       paperWidth: printer.paperWidth,
       previewText: formatted.previewText,
       logoUrl: kind === 'RECEIPT' && typeof resto.logoUrl === 'string' ? resto.logoUrl : null,
-      base64Bytes: Buffer.from(formatted.bytes).toString('base64'),
+      base64Bytes: Buffer.from(printBytes).toString('base64'),
       networkResult,
     };
   }
