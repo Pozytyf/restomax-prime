@@ -22,6 +22,9 @@ async function ensureInitialized(): Promise<void> {
       }
       const postgresCutover = process.env.RESTOMAX_POSTGRES_CUTOVER === 'true';
       if (postgresCutover) {
+        if (!['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || '').toLowerCase())) {
+          throw new Error('PostgreSQL cutover requested but DATABASE_CLIENT is not pg.');
+        }
         if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
           throw new Error('PostgreSQL cutover requested but DATABASE_URL / SUPABASE_DB_URL is missing.');
         }
