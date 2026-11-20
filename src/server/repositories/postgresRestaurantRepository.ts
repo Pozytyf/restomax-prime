@@ -7,6 +7,151 @@ import type { AuditRecord } from './postgresAuthRepository.ts';
 export class PostgresRestaurantRepository {
   constructor(private readonly db: Knex = getKnex()) {}
 
+  async getDashboardMetrics(rid: string) {
+    const [revenueRow, pendingRow, tablesStats, revenueSeries, topItems, lowStocks,
+      paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow] = await Promise.all([
+      this.db('orders').where({ restaurant_id: rid }).whereNot('status', 'CANCELLED')
+        .select(this.db.raw('COALESCE(SUM(total_xof), 0) as total_revenue'),
+          this.db.raw('COUNT(*)::int as orders_count'),
+          this.db.raw('COALESCE(AVG(total_xof), 0) as avg_basket')).first(),
+      this.db('orders').where({ restaurant_id: rid }).whereIn('status', ['PENDING', 'IN_PREPARATION', 'READY']).count({ c: '*' }).first(),
+      this.db('dining_tables').where({ restaurant_id: rid }).select(
+        this.db.raw('COUNT(*)::int as total'),
+        this.db.raw("COUNT(*) FILTER (WHERE status = 'OCCUPIED')::int as occupied"),
+        this.db.raw("COUNT(*) FILTER (WHERE status = 'RESERVED')::int as reserved")).first(),
+      this.db('orders').where({ restaurant_id: rid }).whereNot('status', 'CANCELLED')
+        .select(this.db.raw("TO_CHAR(created_at::timestamp, 'YYYY-MM-DD') as day"),
+          this.db.raw('COALESCE(SUM(total_xof), 0) as revenue_xof'), this.db.raw('COUNT(*)::int as orders'))
+        .groupByRaw("TO_CHAR(created_at::timestamp, 'YYYY-MM-DD')").orderBy('day', 'asc').limit(14),
+      this.db('order_items as oi').join('orders as o', 'o.id', 'oi.order_id')
+        .where('o.restaurant_id', rid).whereNot('o.status', 'CANCELLED')
+        .select('oi.name', this.db.raw('SUM(oi.quantity)::int as qty'),
+          this.db.raw('SUM(oi.line_total_xof) as revenue_xof'))
+        .groupBy('oi.name').orderBy('revenue_xof', 'desc').limit(5),
+      this.db('stocks').where({ restaurant_id: rid }).whereRaw('quantity <= min_threshold')
+        .select('id', 'name', 'unit', 'quantity', 'min_threshold', 'supplier_name')
+        .orderByRaw('(quantity - min_threshold) ASC'),
+      this.db('payments').where({ restaurant_id: rid, status: 'PAID' })
+        .select('method', this.db.raw('COALESCE(SUM(amount_xof), 0) as total_xof'),
+          this.db.raw('COUNT(*)::int as count')).groupBy('method'),
+      this.db('orders as o').leftJoin('dining_tables as t', 't.id', 'o.table_id')
+        .where('o.restaurant_id', rid).select('o.id', 'o.order_number', 'o.order_type',
+          'o.customer_name', 'o.status', 'o.total_xof', 'o.paid_xof', 'o.created_at',
+          { table_label: 't.label' }).orderBy('o.created_at', 'desc').limit(6),
+      this.db('audit_logs').where({ restaurant_id: rid })
+        .select('actor_email', 'actor_role', 'action', 'details', 'created_at')
+        .orderBy('created_at', 'desc').limit(6),
+      this.db('expenses').where({ restaurant_id: rid })
+        .sum({ total_expenses: 'amount_xof' }).first(),
+      this.db('payments').where({ restaurant_id: rid, status: 'PAID' })
+        .sum({ total_paid: 'amount_xof' }).first(),
+    ]);
+    return { revenueRow, pendingRow, tablesStats, revenueSeries, topItems, lowStocks,
+      paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow };
+  }
+
+  findMenuCategories(rid: string) {
+    return this.db('menu_categories').select('id', { restaurantId: 'restaurant_id' },
+      'name', 'station', { sortOrder: 'sort_order' }, 'active')
+      .where({ restaurant_id: rid }).orderBy('sort_order', 'asc');
+  }
+
+  findMenuItems(rid: string) {
+    return this.db('menu_items as m').join('menu_categories as c', 'c.id', 'm.category_id')
+      .select('m.id', { restaurantId: 'm.restaurant_id' }, { categoryId: 'm.category_id' },
+        { categoryName: 'c.name' }, 'c.station', 'm.name', 'm.description',
+        { priceXof: 'm.price_xof' }, { costPriceXof: 'm.cost_price_xof' },
+        { imageUrl: 'm.image_url' }, 'm.available', { sortOrder: 'm.sort_order' }, 'm.options_json')
+      .where('m.restaurant_id', rid).orderBy('m.sort_order', 'asc').orderBy('m.name', 'asc');
+  }
+
+  async countCategories(rid: string) {
+    const row = await this.db('menu_categories').where({ restaurant_id: rid }).count({ count: '*' }).first();
+    return Number(row?.count || 0);
+  }
+
+  async createCategory(rid: string, name: string, station: string, sortOrder: number) {
+    const id = generateId('cat');
+    await this.db('menu_categories').insert({ id, restaurant_id: rid, name, station, sort_order: sortOrder, active: 1 });
+    return id;
+  }
+
+  findCategory(categoryId: string, rid: string) {
+    return this.db('menu_categories').select('id').where({ id: categoryId, restaurant_id: rid }).first();
+  }
+
+  async createMenuItem(params: { rid: string; categoryId: string; name: string;
+    description: string; priceXof: number; costPriceXof: number; optionsJson: string }) {
+    const id = generateId('itm');
+    await this.db('menu_items').insert({ id, restaurant_id: params.rid,
+      category_id: params.categoryId, name: params.name, description: params.description,
+      price_xof: params.priceXof, cost_price_xof: params.costPriceXof,
+      image_url: null, available: 1, sort_order: 99, options_json: params.optionsJson,
+      created_at: new Date().toISOString() });
+    return id;
+  }
+
+  findMenuItemById(itemId: string, rid: string) {
+    return this.db('menu_items').select('id').where({ id: itemId, restaurant_id: rid }).first();
+  }
+
+  async updateMenuItem(itemId: string, rid: string, updates: {
+    available?: boolean; priceXof?: number; name?: string; description?: string;
+  }) {
+    const patch: Record<string, unknown> = {};
+    if (typeof updates.available === 'boolean') patch.available = updates.available ? 1 : 0;
+    if (updates.priceXof !== undefined) patch.price_xof = updates.priceXof;
+    if (updates.name !== undefined) patch.name = updates.name;
+    if (updates.description !== undefined) patch.description = updates.description;
+    if (Object.keys(patch).length) await this.db('menu_items').where({ id: itemId, restaurant_id: rid }).update(patch);
+  }
+
+  async findMenuRecipes(rid: string, menuItemId?: string) {
+    const query = this.db('menu_item_recipes as r').join('stocks as s', 's.id', 'r.stock_id')
+      .select('r.id', { menuItemId: 'r.menu_item_id' }, { stockId: 'r.stock_id' },
+        { quantityPerUnit: 'r.quantity_per_unit' }, { stockName: 's.name' }, 's.unit',
+        { unitCostXof: 's.unit_cost_xof' }, { currentStockQty: 's.quantity' })
+      .where('r.restaurant_id', rid);
+    if (menuItemId) query.andWhere('r.menu_item_id', menuItemId);
+    const rows = await query.orderBy('s.name', 'asc');
+    return rows.map(row => ({ id: String(row.id), menuItemId: String(row.menuItemId),
+      stockId: String(row.stockId), stockName: String(row.stockName), unit: String(row.unit),
+      quantityPerUnit: Number(row.quantityPerUnit), unitCostXof: Number(row.unitCostXof || 0),
+      currentStockQty: Number(row.currentStockQty || 0) }));
+  }
+
+  async findStockById(stockId: string, rid: string) {
+    return this.db('stocks').where({ id: stockId, restaurant_id: rid }).first();
+  }
+
+  async replaceMenuItemRecipe(rid: string, menuItemId: string,
+    lines: Array<{ stockId: string; quantityPerUnit: number }>) {
+    const now = new Date().toISOString();
+    return this.db.transaction(async trx => {
+      await trx('menu_item_recipes').where({ restaurant_id: rid, menu_item_id: menuItemId }).del();
+      let computedCost = 0;
+      for (const line of lines) {
+        const stock = await trx('stocks').where({ id: line.stockId, restaurant_id: rid }).first();
+        if (!stock) continue;
+        await trx('menu_item_recipes').insert({ id: generateId('rec'), restaurant_id: rid,
+          menu_item_id: menuItemId, stock_id: line.stockId,
+          quantity_per_unit: line.quantityPerUnit, created_at: now, updated_at: now });
+        computedCost += Number(stock.unit_cost_xof || 0) * line.quantityPerUnit;
+      }
+      if (lines.length && computedCost > 0) await trx('menu_items')
+        .where({ id: menuItemId, restaurant_id: rid }).update({ cost_price_xof: Math.round(computedCost) });
+      const rows = await trx('menu_item_recipes as r').join('stocks as s', 's.id', 'r.stock_id')
+        .select('r.id', { menuItemId: 'r.menu_item_id' }, { stockId: 'r.stock_id' },
+          { quantityPerUnit: 'r.quantity_per_unit' }, { stockName: 's.name' }, 's.unit',
+          { unitCostXof: 's.unit_cost_xof' }, { currentStockQty: 's.quantity' })
+        .where({ 'r.restaurant_id': rid, 'r.menu_item_id': menuItemId }).orderBy('s.name', 'asc');
+      return rows.map(row => ({ id: String(row.id), menuItemId: String(row.menuItemId),
+        stockId: String(row.stockId), stockName: String(row.stockName), unit: String(row.unit),
+        quantityPerUnit: Number(row.quantityPerUnit), unitCostXof: Number(row.unitCostXof || 0),
+        currentStockQty: Number(row.currentStockQty || 0) }));
+    });
+  }
+
   async findRestaurantTaxAndMode(rid: string) {
     return this.db('restaurants').select('tax_rate_percent', 'paydunya_mode').where({ id: rid }).first();
   }
