@@ -135,14 +135,14 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO public.users (
   id, tenant_id, email, password_hash, full_name, phone, role, global_role, permissions_json, status, created_at
 ) VALUES
-  ('usr_superadmin', NULL, 'superadmin@restomax.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Amadou Koné', '+225 07 00 00 00 01', 'SUPER_ADMIN', 'SUPER_ADMIN', '[]', 'ACTIVE', (NOW() - INTERVAL '90 days')::text),
-  ('usr_owner_1', 'rest_sillage_01', 'proprietaire@lesillage.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Awa Touré', '+225 07 00 00 01 10', 'OWNER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '45 days')::text),
-  ('usr_manager_1', 'rest_sillage_01', 'manager@lesillage.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Jean-Marc Kouassi', '+225 07 00 00 01 11', 'MANAGER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '40 days')::text),
-  ('usr_cashier_1', 'rest_sillage_01', 'caisse@lesillage.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Mariam Bamba', '+225 07 00 00 01 12', 'CASHIER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '35 days')::text),
-  ('usr_waiter_1', 'rest_sillage_01', 'serveur@lesillage.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Cédric Yao', '+225 07 00 00 01 13', 'WAITER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '30 days')::text),
-  ('usr_kitchen_1', 'rest_sillage_01', 'cuisine@lesillage.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Chef Ibrahim Diallo', '+225 07 00 00 01 14', 'KITCHEN_BAR', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '30 days')::text),
-  ('usr_owner_2', 'rest_plateau_02', 'proprietaire@terrasse.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Fatoumata Coulibaly', '+225 05 00 00 02 10', 'OWNER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '6 days')::text),
-  ('usr_owner_3', 'rest_bassam_03', 'proprietaire@bassam.ci', '$2b$10$9fM6T5N3xP8kL2cQ1wV9Xe4Z7hB6mJ0dG5yH8uR2kS4nT7vX1pW2G', 'Koffi Mensah', '+225 01 00 00 03 10', 'OWNER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '70 days')::text)
+  ('usr_superadmin', NULL, 'superadmin@restomax.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Amadou Koné', '+225 07 00 00 00 01', 'SUPER_ADMIN', 'SUPER_ADMIN', '[]', 'ACTIVE', (NOW() - INTERVAL '90 days')::text),
+  ('usr_owner_1', 'rest_sillage_01', 'proprietaire@lesillage.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Awa Touré', '+225 07 00 00 01 10', 'OWNER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '45 days')::text),
+  ('usr_manager_1', 'rest_sillage_01', 'manager@lesillage.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Jean-Marc Kouassi', '+225 07 00 00 01 11', 'MANAGER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '40 days')::text),
+  ('usr_cashier_1', 'rest_sillage_01', 'caisse@lesillage.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Mariam Bamba', '+225 07 00 00 01 12', 'CASHIER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '35 days')::text),
+  ('usr_waiter_1', 'rest_sillage_01', 'serveur@lesillage.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Cédric Yao', '+225 07 00 00 01 13', 'WAITER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '30 days')::text),
+  ('usr_kitchen_1', 'rest_sillage_01', 'cuisine@lesillage.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Chef Ibrahim Diallo', '+225 07 00 00 01 14', 'KITCHEN_BAR', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '30 days')::text),
+  ('usr_owner_2', 'rest_plateau_02', 'proprietaire@terrasse.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Fatoumata Coulibaly', '+225 05 00 00 02 10', 'OWNER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '6 days')::text),
+  ('usr_owner_3', 'rest_bassam_03', 'proprietaire@bassam.ci', '$2b$10$5a/E66pOXpoCMVfiqKL5B.IFnd/FdC2rO3gHccTr1Y5zh69pK7K0.', 'Koffi Mensah', '+225 01 00 00 03 10', 'OWNER', 'USER', '[]', 'ACTIVE', (NOW() - INTERVAL '70 days')::text)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO public.restaurant_members (id, restaurant_id, user_id, role, custom_permissions_json, status, created_at) VALUES
