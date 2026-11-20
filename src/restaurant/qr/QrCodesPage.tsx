@@ -8,7 +8,7 @@ import { useToast } from '../../components/Toast';
 import type { DiningTable } from '../../types';
 function printQrCards(tableId?: string) {
   const body = document.body;
-  const cleanup = () => { delete body.dataset.qrPrintMode; delete body.dataset.qrPrintTable; };
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.qr-print-card'));\n  const cleanup = () => { delete body.dataset.qrPrintMode; delete body.dataset.qrPrintTable; cards.forEach((card) => card.classList.remove('qr-print-selected')); };
   body.dataset.qrPrintMode = tableId ? 'single' : 'all';
   if (tableId) body.dataset.qrPrintTable = tableId;
   else delete body.dataset.qrPrintTable;
