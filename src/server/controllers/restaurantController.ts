@@ -14,7 +14,7 @@ export const restaurantController = {
 
   async getMenu(req: Request, res: Response) {
     try {
-      const menu = restaurantService.getMenu(req.auth!.restaurantId!);
+      const menu = await restaurantService.getMenu(req.auth!.restaurantId!);
       res.json(menu);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement menu.');
@@ -82,7 +82,7 @@ export const restaurantController = {
     }
   },
 
-  getOrders(req: Request, res: Response) {
+  async getOrders(req: Request, res: Response) {
     try {
       const orders = restaurantService.getOrders(req.auth!.restaurantId!);
       res.json({ orders });
@@ -120,7 +120,7 @@ export const restaurantController = {
     }
   },
 
-  getPayments(req: Request, res: Response) {
+  async getPayments(req: Request, res: Response) {
     try {
       const payments = restaurantService.getPayments(req.auth!.restaurantId!);
       res.json({ payments });
@@ -155,7 +155,7 @@ export const restaurantController = {
     }
   },
 
-  getTables(req: Request, res: Response) {
+  async getTables(req: Request, res: Response) {
     try {
       const tables = restaurantService.getTables(req.auth!.restaurantId!);
       res.json({ tables });
@@ -164,7 +164,7 @@ export const restaurantController = {
     }
   },
 
-  createTable(req: Request, res: Response) {
+  async createTable(req: Request, res: Response) {
     try {
       const result = restaurantService.createTable(
         req.auth!.restaurantId!,
@@ -176,9 +176,9 @@ export const restaurantController = {
     }
   },
 
-  updateTableStatus(req: Request, res: Response) {
+  async updateTableStatus(req: Request, res: Response) {
     try {
-      restaurantService.updateTableStatus(
+      await restaurantService.updateTableStatus(
         req.auth!.restaurantId!,
         String(req.params.id),
         req.body?.status,
@@ -189,7 +189,7 @@ export const restaurantController = {
     }
   },
 
-  regenerateTableQr(req: Request, res: Response) {
+  async regenerateTableQr(req: Request, res: Response) {
     try {
       const result = restaurantService.regenerateTableQr(
         req.auth!,
@@ -201,7 +201,7 @@ export const restaurantController = {
     }
   },
 
-  getStocks(req: Request, res: Response) {
+  async getStocks(req: Request, res: Response) {
     try {
       const data = restaurantService.getStocks(req.auth!.restaurantId!);
       res.json(data);
@@ -235,7 +235,7 @@ export const restaurantController = {
     }
   },
 
-  getStockAlertConfig(req: Request, res: Response) {
+  async getStockAlertConfig(req: Request, res: Response) {
     try {
       const data = restaurantService.getStockAlertConfig(
         req.auth!.restaurantId!,
@@ -250,7 +250,7 @@ export const restaurantController = {
     }
   },
 
-  updateStockAlertConfig(req: Request, res: Response) {
+  async updateStockAlertConfig(req: Request, res: Response) {
     try {
       const settings = restaurantService.updateStockAlertConfig(
         req.auth!,
@@ -287,7 +287,7 @@ export const restaurantController = {
     }
   },
 
-  getNotifications(req: Request, res: Response) {
+  async getNotifications(req: Request, res: Response) {
     try {
       const data = restaurantService.getNotifications(req.auth!.restaurantId!);
       res.json(data);
@@ -296,7 +296,7 @@ export const restaurantController = {
     }
   },
 
-  markNotificationsRead(req: Request, res: Response) {
+  async markNotificationsRead(req: Request, res: Response) {
     try {
       restaurantService.markNotificationsRead(
         req.auth!.restaurantId!,
@@ -308,7 +308,7 @@ export const restaurantController = {
     }
   },
 
-  getStaff(req: Request, res: Response) {
+  async getStaff(req: Request, res: Response) {
     try {
       const data = restaurantService.getStaff(req.auth!.restaurantId!);
       res.json(data);
@@ -317,7 +317,7 @@ export const restaurantController = {
     }
   },
 
-  createStaff(req: Request, res: Response) {
+  async createStaff(req: Request, res: Response) {
     try {
       const result = restaurantService.createStaff(req.auth!, req.body || {});
       res.status(201).json(result);
@@ -326,7 +326,7 @@ export const restaurantController = {
     }
   },
 
-  updateStaff(req: Request, res: Response) {
+  async updateStaff(req: Request, res: Response) {
     try {
       restaurantService.updateStaff(
         req.auth!,
@@ -339,7 +339,7 @@ export const restaurantController = {
     }
   },
 
-  getCustomers(req: Request, res: Response) {
+  async getCustomers(req: Request, res: Response) {
     try {
       const customers = restaurantService.getCustomers(req.auth!.restaurantId!);
       res.json({ customers });
@@ -348,7 +348,7 @@ export const restaurantController = {
     }
   },
 
-  createCustomer(req: Request, res: Response) {
+  async createCustomer(req: Request, res: Response) {
     try {
       const id = restaurantService.createCustomer(
         req.auth!.restaurantId!,
@@ -360,7 +360,7 @@ export const restaurantController = {
     }
   },
 
-  getReservations(req: Request, res: Response) {
+  async getReservations(req: Request, res: Response) {
     try {
       const reservations = restaurantService.getReservations(
         req.auth!.restaurantId!,
@@ -371,7 +371,7 @@ export const restaurantController = {
     }
   },
 
-  createReservation(req: Request, res: Response) {
+  async createReservation(req: Request, res: Response) {
     try {
       const id = restaurantService.createReservation(
         req.auth!.restaurantId!,
@@ -383,7 +383,7 @@ export const restaurantController = {
     }
   },
 
-  updateReservationStatus(req: Request, res: Response) {
+  async updateReservationStatus(req: Request, res: Response) {
     try {
       restaurantService.updateReservationStatus(
         req.auth!.restaurantId!,
@@ -396,7 +396,7 @@ export const restaurantController = {
     }
   },
 
-  getFinance(req: Request, res: Response) {
+  async getFinance(req: Request, res: Response) {
     try {
       const data = restaurantService.getFinanceSummary(req.auth!.restaurantId!);
       res.json(data);
@@ -405,7 +405,7 @@ export const restaurantController = {
     }
   },
 
-  createExpense(req: Request, res: Response) {
+  async createExpense(req: Request, res: Response) {
     try {
       const id = restaurantService.createExpense(
         req.auth!.restaurantId!,
@@ -417,7 +417,7 @@ export const restaurantController = {
     }
   },
 
-  exportOrdersCsv(req: Request, res: Response) {
+  async exportOrdersCsv(req: Request, res: Response) {
     try {
       const csv = restaurantService.exportOrdersCsv(req.auth!.restaurantId!);
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -431,7 +431,7 @@ export const restaurantController = {
     }
   },
 
-  getSettings(req: Request, res: Response) {
+  async getSettings(req: Request, res: Response) {
     try {
       const data = restaurantService.getSettings(req.auth!.restaurantId!);
       res.json(data);
@@ -440,7 +440,7 @@ export const restaurantController = {
     }
   },
 
-  updateSettings(req: Request, res: Response) {
+  async updateSettings(req: Request, res: Response) {
     try {
       restaurantService.updateSettings(req.auth!, req.body || {});
       res.json({ ok: true });
