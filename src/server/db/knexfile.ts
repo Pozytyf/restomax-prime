@@ -76,7 +76,9 @@ export function buildPostgresKnexConfig(
     },
     pool: {
       min: Number(process.env.DB_POOL_MIN || (process.env.VERCEL ? 0 : 2)),
-      max: Number(process.env.DB_POOL_MAX || (process.env.VERCEL ? 10 : 20)),
+      // Vercel functions are short-lived; keep one connection per instance by default.
+      // The Supabase transaction pooler (6543) multiplexes connections server-side.
+      max: Number(process.env.DB_POOL_MAX || (process.env.VERCEL ? 1 : 20)),
       acquireTimeoutMillis: 30_000,
     },
     migrations: {
