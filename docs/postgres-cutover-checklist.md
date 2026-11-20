@@ -17,6 +17,9 @@ For an isolated Preview environment only:
 - `SUPABASE_DB_URL` or `DATABASE_URL` set to the isolated Supabase branch's transaction-pooler connection string
 - `DATABASE_SSL=true`
 - `DB_POOL_MAX=1`
+- `JWT_SECRET` set to a strong, unique secret for the target environment (never rely on a development fallback).
+
+Keep Preview and Production JWT secrets separate. Rotating the Production `JWT_SECRET` invalidates existing application JWT sessions, so schedule that change and communicate the required re-login before the Production deployment.
 
 Do not point Preview at the production database for migration or end-to-end testing.
 
