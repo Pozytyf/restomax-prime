@@ -3,27 +3,27 @@ import { publicService } from '../services/publicService.ts';
 import { handleControllerError } from '../services/errors.ts';
 
 export const publicController = {
-  getPlans(_req: Request, res: Response) {
+  async getPlans(_req: Request, res: Response) {
     try {
-      const plans = publicService.getActivePlans();
+      const plans = await publicService.getActivePlans();
       res.json({ plans });
     } catch (err) {
       handleControllerError(res, err, 'Erreur lors du chargement des offres.');
     }
   },
 
-  getSettings(_req: Request, res: Response) {
+  async getSettings(_req: Request, res: Response) {
     try {
-      const settings = publicService.getPlatformSettings();
+      const settings = await publicService.getPlatformSettings();
       res.json({ settings });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement paramètres.');
     }
   },
 
-  submitContact(req: Request, res: Response) {
+  async submitContact(req: Request, res: Response) {
     try {
-      const result = publicService.submitContactLead(req.body || {});
+      const result = await publicService.submitContactLead(req.body || {});
       if (result.honeypot) {
         res.status(200).json({ ok: true });
         return;
@@ -34,9 +34,9 @@ export const publicController = {
     }
   },
 
-  submitDemoRequest(req: Request, res: Response) {
+  async submitDemoRequest(req: Request, res: Response) {
     try {
-      const result = publicService.submitDemoRequest(req.body || {});
+      const result = await publicService.submitDemoRequest(req.body || {});
       if (result.honeypot) {
         res.status(200).json({ ok: true });
         return;
@@ -67,9 +67,9 @@ export const publicController = {
     }
   },
 
-  getQrMenuContext(req: Request, res: Response) {
+  async getQrMenuContext(req: Request, res: Response) {
     try {
-      const context = publicService.getQrMenuContext(String(req.params.token));
+      const context = await publicService.getQrMenuContext(String(req.params.token));
       res.json(context);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement menu QR.');
@@ -92,9 +92,9 @@ export const publicController = {
     }
   },
 
-  trackQrOrder(req: Request, res: Response) {
+  async trackQrOrder(req: Request, res: Response) {
     try {
-      const order = publicService.trackQrOrder(
+      const order = await publicService.trackQrOrder(
         String(req.params.token),
         String(req.params.orderId),
       );
