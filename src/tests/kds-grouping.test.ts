@@ -4,6 +4,7 @@ import {
   countKdsStatuses,
   groupKdsOrders,
   groupKdsOrdersByPrepTime,
+  filterKdsOrders,
 } from '../restaurant/kitchen/kdsGrouping.ts';
 import type { Order } from '../types/index.ts';
 
@@ -241,4 +242,24 @@ test('groupKdsOrdersByPrepTime buckets orders into CRITICAL, ACTIVE and FRESH ti
   assert.equal(readyOnly[0].orders[0].order.orderNumber, 'CMD-1003');
   assert.equal(readyOnly[1].orders.length, 0);
   assert.equal(readyOnly[2].orders.length, 0);
+});
+
+test('dedicated station queues keep mixed-order preparation states independent', () => {
+  const mixed = makeOrder({
+    id: 'ord_mixed',
+    items: [
+      { ...sampleOrders[0].items[0], id: 'oi_kitchen', prepStatus: 'READY' },
+      { ...sampleOrders[0].items[1], id: 'oi_bar', prepStatus: 'PENDING' },
+    ],
+  });
+
+  const kitchen = filterKdsOrders([mixed], 'KITCHEN', 'ALL');
+  const bar = filterKdsOrders([mixed], 'BAR', 'ALL');
+
+  assert.equal(kitchen.length, 1);
+  assert.deepEqual(kitchen[0].visibleItems.map((item) => item.id), ['oi_kitchen']);
+  assert.equal(kitchen[0].order.status, 'READY');
+  assert.equal(bar.length, 1);
+  assert.deepEqual(bar[0].visibleItems.map((item) => item.id), ['oi_bar']);
+  assert.equal(bar[0].order.status, 'PENDING');
 });
