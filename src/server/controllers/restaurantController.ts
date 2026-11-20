@@ -36,6 +36,11 @@ export const restaurantController = {
 
   async createImageUploadUrl(req: Request, res: Response) {
     try {
+      const requiredPermission = req.body?.kind === 'logo' ? 'settings:write' : 'menu:write';
+      if (!req.auth!.permissions.includes(requiredPermission)) {
+        res.status(403).json({ error: 'Permission insuffisante.' });
+        return;
+      }
       const upload = createRestaurantImageUpload(
         req.auth!.restaurantId!,
         req.body?.kind,
