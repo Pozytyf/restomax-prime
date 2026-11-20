@@ -87,10 +87,39 @@ export async function printViaWebSerial(bytes: Uint8Array): Promise<void> {
   }
 }
 
+
+function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm') {
+  const frame = document.createElement('iframe');
+  frame.title = 'Ticket Resto’MAX';
+  frame.style.position = 'fixed';
+  frame.style.right = '0';
+  frame.style.bottom = '0';
+  frame.style.width = '0';
+  frame.style.height = '0';
+  frame.style.border = '0';
+  frame.onload = () => {
+    window.setTimeout(() => {
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    }, 100);
+  };
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument;
+  if (!doc) throw new Error('Impossible de préparer le document à imprimer.');
+  const style = doc.createElement('style');
+  style.textContent = '@page { size: ' + paperWidth + ' auto; margin: 2mm; } body { margin: 0; width: ' + paperWidth + '; color: #000; background: #fff; } pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: 11pt/1.35 monospace; }';
+  const pre = doc.createElement('pre');
+  pre.textContent = previewText;
+  doc.head.appendChild(style);
+  doc.body.appendChild(pre);
+  doc.close();
+  frame.contentWindow?.addEventListener('afterprint', () => frame.remove(), { once: true });
+  window.setTimeout(() => frame.remove(), 60000);
+}
 export async function executeThermalPrint(
   payload: ThermalPrintPayload,
 ): Promise<ThermalPrintResponse & { dispatchedVia: 'NETWORK' | 'WEB_SERIAL' | 'BROWSER' }> {
-  const res = await apiFetch<ThermalPrintResponse>('/api/restaurant/print/escpos', {
+  if (payload.kind === 'KITCHEN' && payload.items.length === 0) {\n    throw new Error('Aucun article à imprimer pour ce ticket cuisine/bar.');\n  }\n\n  const res = await apiFetch<ThermalPrintResponse>('/api/restaurant/print/escpos', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -107,7 +136,7 @@ export async function executeThermalPrint(
 
   if (res.mode === 'WEB_SERIAL') {
     if (!supportsWebSerial()) {
-      window.print();
+      printThermalPreview(res.previewText, res.paperWidth);
       return { ...res, dispatchedVia: 'BROWSER' };
     }
     const bytes = decodeBase64ToBytes(res.base64Bytes);
@@ -115,6 +144,6 @@ export async function executeThermalPrint(
     return { ...res, dispatchedVia: 'WEB_SERIAL' };
   }
 
-  window.print();
+  printThermalPreview(res.previewText, res.paperWidth);
   return { ...res, dispatchedVia: 'BROWSER' };
 }
