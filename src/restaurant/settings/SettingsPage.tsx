@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Printer } from 'lucide-react';
 import { RestaurantLayout } from '../RestaurantLayout';
 import { apiFetch } from '../../services/api';
+import { uploadRestaurantImage } from '../../utils/imageUpload';
 import { useToast } from '../../components/Toast';
 import { formatDateFr, formatFcfa } from '../../utils/format';
 import type { ThermalPrintResponse } from '../../utils/thermalPrint';
@@ -44,6 +45,7 @@ export function SettingsPage() {
     message: '',
   });
   const [testingPrint, setTestingPrint] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [testPreview, setTestPreview] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -77,6 +79,7 @@ export function SettingsPage() {
         method: 'PATCH',
         body: JSON.stringify({
           name: resto.name,
+          logoUrl: resto.logoUrl || null,
           phone: resto.phone,
           address: resto.address,
           city: resto.city,
@@ -185,6 +188,40 @@ export function SettingsPage() {
             <h2 className="text-base font-bold text-[var(--rm-ink)]">
               {t('settings.profileSectionTitle')}
             </h2>
+
+            <div className="rounded-xl border border-[var(--rm-border)] p-4 flex items-center gap-4">
+              {resto.logoUrl ? (
+                <img src={resto.logoUrl} alt="Logo du restaurant" className="h-16 w-16 rounded-lg object-contain bg-white p-1" />
+              ) : (
+                <div className="h-16 w-16 rounded-lg bg-[var(--rm-surface-muted)] flex items-center justify-center text-xs text-[var(--rm-ink-muted)]">Logo</div>
+              )}
+              <div className="flex-1 min-w-0">
+                <label className="block text-xs font-semibold text-[var(--rm-ink)] mb-1">Logo du restaurant (JPG, PNG, WebP · 5 Mo max.)</label>
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={uploadingLogo}
+                  onChange={async (e) => {
+                    const input = e.currentTarget;
+                    const file = input.files?.[0];
+                    if (!file) return;
+                    setUploadingLogo(true);
+                    try {
+                      const logoUrl = await uploadRestaurantImage(file, 'logo');
+                      setResto((current) => current ? { ...current, logoUrl } : current);
+                      notify('Logo envoyé. Enregistrez les paramètres pour le conserver.', 'success');
+                    } catch (err) {
+                      notify(err instanceof Error ? err.message : 'Échec de l’envoi du logo.', 'error');
+                    } finally {
+                      setUploadingLogo(false);
+                      input.value = '';
+                    }
+                  }}
+                  className="w-full text-xs text-[var(--rm-ink)]"
+                />
+                <p className="mt-1 text-[11px] text-[var(--rm-ink-muted)]">{uploadingLogo ? 'Envoi en cours…' : 'Le logo sera ajouté aux tickets imprimés depuis le navigateur.'}</p>
+              </div>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
