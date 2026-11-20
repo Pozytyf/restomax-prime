@@ -82,7 +82,7 @@ export function getPostgresPool(): Pool | null {
     cachedPgPool = new Pool({
       connectionString: cfg.dbUrl,
       ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-      max: Number(process.env.DB_POOL_MAX || (isServerless ? 5 : 10)),
+      max: Number(process.env.DB_POOL_MAX || (isServerless ? 1 : 10)),
       idleTimeoutMillis: isServerless ? 10_000 : 15_000,
       connectionTimeoutMillis: 10_000,
       allowExitOnIdle: isServerless,
