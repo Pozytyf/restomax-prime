@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Bell,
   CheckCircle2,
@@ -102,9 +103,17 @@ function getTierMeta(
 export function KitchenKdsPage() {
   const { t } = useTranslation();
   const { notify } = useToast();
+  const location = useLocation();
+  const fixedStation: KdsStationFilter =
+    location.pathname === '/app/bar' ? 'BAR' :
+    location.pathname === '/app/kitchen' ? 'KITCHEN' : 'ALL';
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stationFilter, setStationFilter] = useState<KdsStationFilter>('ALL');
+  const [stationFilter, setStationFilter] = useState<KdsStationFilter>(fixedStation);
+
+  useEffect(() => {
+    setStationFilter(fixedStation);
+  }, [fixedStation]);
   const [statusFilter, setStatusFilter] = useState<KdsStatusFilter>('ALL');
   const [groupMode, setGroupMode] = useState<KdsGroupMode>('TIME');
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -324,7 +333,8 @@ export function KitchenKdsPage() {
             ))}
           </div>
 
-          {/* Station filter */}
+          {/* Station filter: only shown on the combined overview */}
+          {fixedStation === 'ALL' && (
           <div className="inline-flex p-1 rounded-lg bg-[var(--rm-surface-muted)] border border-[var(--rm-border)]">
             {(['ALL', 'KITCHEN', 'BAR'] as const).map((st) => (
               <button
@@ -345,6 +355,7 @@ export function KitchenKdsPage() {
               </button>
             ))}
           </div>
+          )}
         </div>
       }
     >
