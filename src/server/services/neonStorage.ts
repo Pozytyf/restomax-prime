@@ -72,6 +72,7 @@ export function createRestaurantImageUpload(rid: string, kind: unknown, mime: un
 
 export function isRestaurantImageUrl(rid: string, kind: 'menu' | 'logo', value: unknown): value is string {
   if (typeof value !== 'string' || !process.env.AWS_ENDPOINT_URL_S3) return false;
-  const expectedPrefix = `${process.env.AWS_ENDPOINT_URL_S3.replace(/\\/$/, '')}/${BUCKET}/${rid}/${kind}/`;
+  const endpoint = process.env.AWS_ENDPOINT_URL_S3.endsWith('/') ? process.env.AWS_ENDPOINT_URL_S3.slice(0, -1) : process.env.AWS_ENDPOINT_URL_S3;
+  const expectedPrefix = `${endpoint}/${BUCKET}/${rid}/${kind}/`;
   return value.startsWith(expectedPrefix) && !value.includes('..');
 }
