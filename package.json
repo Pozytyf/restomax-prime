@@ -13,7 +13,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test src/tests/security-and-flow.test.ts src/tests/kds-grouping.test.ts",
+    "test": "tsx --test src/tests/security-and-flow.test.ts src/tests/kds-grouping.test.ts src/tests/neon-storage.test.ts",
     "test:infra": "tsx --test src/tests/supabase-vercel.test.ts",
     "test:auth-repository": "tsx --test src/tests/postgres-auth-repository.test.ts",
     "test:restaurant-repository": "tsx --test src/tests/postgres-restaurant-repository.test.ts",
