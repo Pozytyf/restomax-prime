@@ -183,7 +183,7 @@ export class PostgresRestaurantRepository {
 
   async findTablesWithQrAndActiveOrder(rid: string) {
     return this.db('dining_tables as t').leftJoin('qr_codes as q', function() {
-      this.on('q.table_id', '=', 't.id').andOn('q.status', '=', this.client.raw('?', ['ACTIVE']));
+      this.on('q.table_id', '=', 't.id').andOnVal('q.status', '=', 'ACTIVE');
     }).where('t.restaurant_id', rid).select('t.id', { restaurantId: 't.restaurant_id' },
       't.zone', 't.label', 't.capacity', 't.status', { qrToken: 'q.token' },
       { qrVersion: 'q.version' }, { qrStatus: 'q.status' })
