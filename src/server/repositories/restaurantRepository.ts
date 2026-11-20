@@ -601,6 +601,16 @@ export class RestaurantRepository extends BaseRepository {
       | undefined;
   }
 
+  updateOrderItemPrepStatus(orderId: string, itemId: string, rid: string, status: string) {
+    const db = getDb();
+    const result = db.prepare(
+      `UPDATE order_items SET prep_status = ?
+       WHERE id = ? AND order_id = ?
+       AND EXISTS (SELECT 1 FROM orders WHERE orders.id = order_items.order_id AND orders.restaurant_id = ?)`,
+    ).run(status, itemId, orderId, rid);
+    if (result.changes === 0) throw new AppError(404, 'Article de commande introuvable.');
+  }
+
   updateOrderAndPrepStatus(
     orderId: string,
     rid: string,
