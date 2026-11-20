@@ -37,3 +37,5 @@ jobs:
         run: npm run test:restaurant-repository
       - name: Public QR repository transaction tests
         run: npm run test:public-repository
+      - name: Superadmin repository transaction tests
+        run: npm run test:superadmin-repository
