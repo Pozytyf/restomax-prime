@@ -13,6 +13,7 @@ import {
   UserCheck,
   Users,
   Utensils,
+  Wine,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppShell, type NavItem, type ShellAlert } from '../components/AppShell';
@@ -59,6 +60,12 @@ const ALL_NAV: Array<{
     to: '/app/kitchen',
     labelKey: 'nav.kitchen',
     icon: ChefHat,
+    permission: 'kitchen:read',
+  },
+  {
+    to: '/app/bar',
+    labelKey: 'common.bar',
+    icon: Wine,
     permission: 'kitchen:read',
   },
   {
