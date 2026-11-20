@@ -1704,15 +1704,22 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  getTickets(rid: string) {
+  async getTickets(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findTicketsForRestaurant(rid);
     return restaurantRepository.findTicketsForRestaurant(rid);
   }
 
-  createTicket(auth: AuthContext, body: Record<string, unknown>) {
+  async createTicket(auth: AuthContext, body: Record<string, unknown>) {
     const { subject, category, priority, message } = body || {};
     if (typeof subject !== 'string' || typeof message !== 'string') {
       throw new AppError(400, 'Sujet et message requis.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createSupportTicket({
+      rid: auth.restaurantId!, email: auth.email, fullName: auth.fullName,
+      role: auth.role, subject: subject.trim(), category: String(category || 'Général'),
+      priority: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(String(priority)) ? String(priority) : 'MEDIUM',
+      message: message.trim(),
+    });
     return restaurantRepository.createSupportTicket({
       rid: auth.restaurantId!,
       email: auth.email,
