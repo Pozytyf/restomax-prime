@@ -69,3 +69,122 @@
     display: none !important;
   }
 }
+
+
+.qr-tent-print {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A5 portrait;
+    margin: 0;
+  }
+
+  body[data-qr-print-mode] * {
+    visibility: hidden !important;
+  }
+
+  body[data-qr-print-mode] .qr-print-scope,
+  body[data-qr-print-mode] .qr-print-scope * {
+    visibility: visible !important;
+  }
+
+  body[data-qr-print-mode] .qr-print-scope {
+    position: absolute !important;
+    inset: 0 auto auto 0 !important;
+    display: block !important;
+    width: 148mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  body[data-qr-print-mode] .qr-print-card {
+    display: block !important;
+    width: 148mm !important;
+    height: 210mm !important;
+    box-sizing: border-box !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  body[data-qr-print-mode='single'] .qr-print-card:not(.qr-print-selected) {
+    display: none !important;
+  }
+
+  body[data-qr-print-mode] .qr-screen-content,
+  body[data-qr-print-mode] .no-print {
+    display: none !important;
+  }
+
+  body[data-qr-print-mode] .qr-tent-print {
+    display: flex !important;
+    flex-direction: column;
+    width: 148mm;
+    height: 210mm;
+    color: #111827;
+    background: #fff;
+    box-sizing: border-box;
+  }
+
+  .qr-tent-panel {
+    height: 104mm;
+    width: 148mm;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    padding: 5mm 8mm;
+    text-align: center;
+  }
+
+  .qr-tent-panel-back {
+    transform: rotate(180deg);
+  }
+
+  .qr-tent-brand {
+    margin: 0 0 2mm;
+    font: 700 10pt Arial, sans-serif;
+    letter-spacing: 2px;
+  }
+
+  .qr-tent-panel h2 {
+    margin: 0;
+    font: 800 23pt Arial, sans-serif;
+  }
+
+  .qr-tent-zone {
+    margin: 1mm 0 3mm;
+    font: 11pt Arial, sans-serif;
+  }
+
+  .qr-tent-panel img {
+    display: block;
+    width: 62mm;
+    height: 62mm;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
+
+  .qr-tent-instruction {
+    margin: 3mm 0 0;
+    font: 600 10pt Arial, sans-serif;
+  }
+
+  .qr-tent-fold {
+    height: 2mm;
+    width: 100%;
+    border-top: 0.3mm dashed #9ca3af;
+    color: #6b7280;
+    text-align: center;
+    font: 6pt Arial, sans-serif;
+    line-height: 2mm;
+  }
+}
