@@ -67,6 +67,7 @@ export class PostgresSuperadminRepository {
     rid: string; uid: string; name: string; slug: string; cleanEmail: string;
     phone: string; city: string; ownerName: string; passwordHash: string;
     planId: string; now: string; periodEnd: string;
+    actorUserId: string; actorEmail: string;
   }) {
     return this.db.transaction(async trx => {
       const row = { id: params.rid, name: params.name, slug: params.slug,
@@ -81,6 +82,10 @@ export class PostgresSuperadminRepository {
       await trx('restaurant_members').insert({ id: generateId('mem'),
         restaurant_id: params.rid, user_id: params.uid, role: 'OWNER',
         custom_permissions_json: '[]', status: 'ACTIVE', created_at: params.now });
+      await trx('audit_logs').insert({ id: generateId('aud'), actor_user_id: params.actorUserId,
+        actor_email: params.actorEmail, actor_role: 'SUPER_ADMIN', restaurant_id: params.rid,
+        action: 'RESTAURANT_CREATED_BY_ADMIN', target_type: 'RESTAURANT', target_id: params.rid,
+        details: params.name, created_at: params.now });
       await trx('subscriptions').insert({ id: generateId('sub'),
         restaurant_id: params.rid, plan_id: params.planId, billing_cycle: 'MONTHLY',
         status: 'ACTIVE', current_period_start: params.now,
@@ -192,6 +197,15 @@ export class PostgresSuperadminRepository {
       { restaurantId: 'restaurant_id' }, 'action', { targetType: 'target_type' },
       { targetId: 'target_id' }, 'details', { createdAt: 'created_at' })
       .orderBy('created_at', 'desc').limit(100);
+  }
+
+  async recordAudit(params: { actorUserId: string; actorEmail: string; actorRole: string;
+    restaurantId: string | null; action: string; targetType: string; targetId: string; details?: string }) {
+    await this.db('audit_logs').insert({ id: generateId('aud'),
+      actor_user_id: params.actorUserId, actor_email: params.actorEmail,
+      actor_role: params.actorRole, restaurant_id: params.restaurantId,
+      action: params.action, target_type: params.targetType, target_id: params.targetId,
+      details: params.details || '', created_at: new Date().toISOString() });
   }
 
   findPlatformSettings() { return this.db('platform_settings').select('key', 'value'); }
