@@ -38,6 +38,7 @@ export interface ThermalPrintPayload {
   sendNetwork?: boolean;
   printerHost?: string;
   printerPort?: number;
+  logoRasterBase64?: string;
 }
 
 export interface ThermalPrintResponse {
@@ -89,6 +90,63 @@ export async function printViaWebSerial(bytes: Uint8Array): Promise<void> {
 }
 
 
+async function buildLogoRasterBase64(
+  logoUrl: string,
+  paperWidth: '58mm' | '80mm',
+): Promise<string | null> {
+  try {
+    const image = new Image();
+    image.crossOrigin = 'anonymous';
+    image.src = logoUrl;
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Logo image unavailable'));
+    });
+    const maxWidth = paperWidth === '58mm' ? 384 : 576;
+    const maxHeight = 150;
+    const scale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight, 1);
+    const width = Math.max(1, Math.floor(image.naturalWidth * scale));
+    const height = Math.max(1, Math.floor(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return null;
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    const pixels = context.getImageData(0, 0, width, height).data;
+    const bytesPerRow = Math.ceil(width / 8);
+    const raster: number[] = [
+      0x1b, 0x40, 0x1b, 0x61, 0x01,
+      0x1d, 0x76, 0x30, 0x00,
+      bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff,
+      height & 0xff, (height >> 8) & 0xff,
+    ];
+    for (let y = 0; y < height; y++) {
+      for (let bx = 0; bx < bytesPerRow; bx++) {
+        let value = 0;
+        for (let bit = 0; bit < 8; bit++) {
+          const x = bx * 8 + bit;
+          if (x >= width) continue;
+          const offset = (y * width + x) * 4;
+          const luminance = 0.299 * pixels[offset] + 0.587 * pixels[offset + 1] + 0.114 * pixels[offset + 2];
+          if (luminance < 170 && pixels[offset + 3] > 32) value |= 0x80 >> bit;
+        }
+        raster.push(value);
+      }
+    }
+    raster.push(0x0a);
+    let binary = '';
+    for (let i = 0; i < raster.length; i += 0x8000) {
+      binary += String.fromCharCode(...raster.slice(i, i + 0x8000));
+    }
+    return window.btoa(binary);
+  } catch {
+    return null;
+  }
+}
+
 function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm', logoUrl?: string | null) {
   const frame = document.createElement('iframe');
   frame.title = 'Ticket Resto’MAX';
@@ -135,9 +193,21 @@ export async function executeThermalPrint(
     throw new Error('Aucun article à imprimer pour ce ticket cuisine/bar.');
   }
 
+  let printPayload = payload;
+  if (payload.kind === 'RECEIPT') {
+    try {
+      const settings = await apiFetch<{ restaurant: { logoUrl?: string | null } }>('/api/restaurant/settings');
+      if (settings.restaurant.logoUrl) {
+        const logoRasterBase64 = await buildLogoRasterBase64(settings.restaurant.logoUrl, '80mm');
+        if (logoRasterBase64) printPayload = { ...payload, logoRasterBase64 };
+      }
+    } catch {
+      // A missing logo or settings lookup must not block a receipt.
+    }
+  }
   const res = await apiFetch<ThermalPrintResponse>('/api/restaurant/print/escpos', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify(printPayload),
   });
 
   if (res.mode === 'NETWORK_ESCPOS') {
