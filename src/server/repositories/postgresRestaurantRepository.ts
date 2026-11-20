@@ -620,6 +620,20 @@ export class PostgresRestaurantRepository {
     });
   }
 
+  async updateOrderItemPrepStatus(orderId: string, itemId: string, rid: string, status: string) {
+    return this.db.transaction(async trx => {
+      const item = await trx('order_items as oi')
+        .join('orders as o', 'o.id', 'oi.order_id')
+        .select('oi.id')
+        .where({ 'oi.id': itemId, 'oi.order_id': orderId, 'o.restaurant_id': rid })
+        .forUpdate()
+        .first();
+      if (!item) throw new AppError(404, 'Article de commande introuvable.');
+      await trx('order_items').where({ id: itemId, order_id: orderId }).update({ prep_status: status });
+      return { orderId, itemId, prepStatus: status };
+    });
+  }
+
   async updateOrderStatusTransaction(orderId: string, rid: string, status: string) {
     return this.db.transaction(async trx => {
       const order = await trx('orders').select('id', 'table_id')
