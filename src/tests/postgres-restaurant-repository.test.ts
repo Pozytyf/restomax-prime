@@ -19,6 +19,11 @@ before(async () => {
     t.string('created_by_user_id'); t.string('created_at'); t.string('updated_at');
     t.unique(['restaurant_id', 'idempotency_key']);
   });
+  await db.schema.createTable('qr_codes', t => {
+    t.string('id').primary(); t.string('restaurant_id'); t.string('table_id');
+    t.string('token').unique(); t.integer('version'); t.string('status');
+    t.string('created_at'); t.string('revoked_at');
+  });
   await db.schema.createTable('order_items', t => {
     t.string('id').primary(); t.string('order_id'); t.string('menu_item_id');
     t.string('name'); t.string('station'); t.integer('unit_price_xof');
@@ -51,7 +56,8 @@ before(async () => {
     t.string('target_type'); t.string('target_id'); t.text('details'); t.string('created_at');
   });
   await db('restaurants').insert({ id: 'rest_1', tax_rate_percent: 18, paydunya_mode: 'TEST' });
-  await db('dining_tables').insert({ id: 'table_1', restaurant_id: 'rest_1', status: 'AVAILABLE' });
+  await db('dining_tables').insert({ id: 'table_1', restaurant_id: 'rest_1', zone: 'Salle', label: 'Table 1', capacity: 4, status: 'AVAILABLE' });
+  await db('qr_codes').insert({ id: 'qr_1', restaurant_id: 'rest_1', table_id: 'table_1', token: 'table-1-v1', version: 1, status: 'ACTIVE', created_at: '2026-11-20T00:00:00.000Z' });
   await db('stocks').insert({ id: 'stock_1', restaurant_id: 'rest_1', name: 'Riz', quantity: 5, min_threshold: 2, unit: 'kg', supplier_name: 'Fournisseur', updated_at: '2026-11-20T00:00:00.000Z' });
   await db('menu_item_recipes').insert({ id: 'recipe_1', restaurant_id: 'rest_1', menu_item_id: 'menu_1', stock_id: 'stock_1', quantity_per_unit: 0.5 });
   repository = new PostgresRestaurantRepository(db);
@@ -95,4 +101,15 @@ test('payment settlement is idempotent, respects outstanding balance, and releas
   assert.equal((await db('orders').where({ id: 'order_1' }).first())?.status, 'PAID');
   assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'AVAILABLE');
   assert.equal(await db('audit_logs').where({ action: 'PAYMENT_RECORDED' }).count('* as n').first().then(x => Number(x?.n)), 2);
+});
+
+test('table listing joins only active QR codes and regeneration revokes the previous token', async () => {
+  const tables = await repository.findTablesWithQrAndActiveOrder('rest_1');
+  assert.equal(tables.length, 1);
+  assert.equal(tables[0].qrToken, 'table-1-v1');
+  const regenerated = await repository.regenerateTableQr('table_1', 'rest_1');
+  assert.equal(regenerated.version, 2);
+  assert.notEqual(regenerated.token, 'table-1-v1');
+  assert.equal((await db('qr_codes').where({ id: 'qr_1' }).first())?.status, 'REVOKED');
+  assert.equal(await db('qr_codes').where({ table_id: 'table_1', status: 'ACTIVE' }).count('* as n').first().then(x => Number(x?.n)), 1);
 });
