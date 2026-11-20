@@ -61,6 +61,11 @@ restaurantRouter.post(
   restaurantController.createPosOrder,
 );
 restaurantRouter.patch(
+  '/orders/:id/items/:itemId/prep-status',
+  requirePermission('kitchen:read'),
+  restaurantController.updateOrderItemPrepStatus,
+);
+restaurantRouter.patch(
   '/orders/:id/status',
   requirePermission('orders:read'),
   restaurantController.updateOrderStatus,
