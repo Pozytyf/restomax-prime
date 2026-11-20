@@ -36,6 +36,10 @@ async function ensureInitialized(): Promise<void> {
       // Do not mutate PostgreSQL while the application is still using SQLite.
       getDb();
     })().catch((err) => {
+      console.error('[Vercel/API] Initialization failed:', {
+        name: err instanceof Error ? err.name : 'UnknownError',
+        message: err instanceof Error ? err.message : String(err),
+      });
       initPromise = null;
       throw err;
     });
