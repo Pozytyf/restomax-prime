@@ -929,6 +929,7 @@ export function KitchenKdsPage() {
 
                     {/* Batch actions are only available in the combined overview. */}
                     {fixedStation === 'ALL' && (
+                      <>
                     {grp.orders.length > 1 &&
                       (pendingIds.length > 0 ||
                         prepIds.length > 0 ||
@@ -978,6 +979,7 @@ export function KitchenKdsPage() {
                           )}
                         </div>
                       )}
+                      </>
                     )}
                   </div>
                 </div>
