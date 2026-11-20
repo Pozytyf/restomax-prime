@@ -239,7 +239,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async createMenuItem(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
-    const { categoryId, name, description, priceXof, costPriceXof, options } =
+    const { categoryId, name, description, priceXof, costPriceXof, options, imageUrl } =
       body || {};
     if (
       typeof categoryId !== 'string' ||
@@ -261,7 +261,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       const id = await postgresRestaurantRepository.createMenuItem({ rid, categoryId,
         name: name.trim(), description: String(description || '').trim(),
         priceXof: roundedPrice, costPriceXof: Math.max(0, Math.round(Number(costPriceXof || 0))),
-        optionsJson: JSON.stringify(cleanOptions) });
+        optionsJson: JSON.stringify(cleanOptions), imageUrl: typeof imageUrl === 'string' ? imageUrl : null });
       await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
         actorRole: auth.role, restaurantId: rid, action: 'MENU_ITEM_CREATED',
         targetType: 'MENU_ITEM', targetId: id, details: `${name.trim()} (${roundedPrice} FCFA)` });
@@ -289,6 +289,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       priceXof: roundedPrice,
       costPriceXof: Math.max(0, Math.round(Number(costPriceXof || 0))),
       optionsJson: JSON.stringify(cleanOptions),
+      imageUrl: typeof imageUrl === 'string' ? imageUrl : null,
     });
 
     recordAudit(getDb(), {
@@ -308,12 +309,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
   async updateMenuItem(rid: string, itemId: string, body: Record<string, unknown>) {
     if (isPostgresMode()) {
       if (!await postgresRestaurantRepository.findMenuItemById(itemId, rid)) throw new AppError(404, 'Article introuvable.');
-      const { available, priceXof, name, description } = body || {};
+      const { available, priceXof, name, description, imageUrl } = body || {};
       await postgresRestaurantRepository.updateMenuItem(itemId, rid, {
         available: typeof available === 'boolean' ? available : undefined,
         priceXof: Number.isFinite(Number(priceXof)) && Number(priceXof) >= 0 ? Math.round(Number(priceXof)) : undefined,
         name: typeof name === 'string' && name.trim().length >= 2 ? name.trim() : undefined,
         description: typeof description === 'string' ? description.trim() : undefined,
+        imageUrl: typeof imageUrl === 'string' ? imageUrl : undefined,
       });
       broadcastRestaurantEvent(rid, 'menu:updated', { itemId });
       return;
