@@ -913,7 +913,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
     let notification = null;
     if (settings.inAppEnabled) {
-      notification = await postgresRestaurantRepository.createNotification({
+      notification = restaurantRepository.createNotification({
         rid,
         type: 'STOCK_CRITICAL',
         title,
@@ -951,6 +951,48 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       emailStatus: emailResult.status,
       recipients: emailResult.recipients,
     };
+  }
+
+  private async dispatchCriticalStockAlertPostgres(params: {
+    restaurantId?: string; auth?: AuthContext; stockId: string; stockName: string;
+    quantity: number; minThreshold: number; unit: string; supplierName: string;
+  }) {
+    const rid = params.restaurantId || params.auth?.restaurantId;
+    if (!rid) throw new AppError(400, 'Identifiant restaurant requis.');
+    const settings = await postgresRestaurantRepository.findStockAlertSettings(rid);
+    const recipients = await this.resolveStockAlertRecipients(rid, settings.recipientEmails);
+    const restaurantName = await postgresRestaurantRepository.findRestaurantNameById(rid);
+    let emailResult: { dispatched: boolean; status: 'SENT' | 'QUEUED_NO_SMTP' | 'SKIPPED' | 'FAILED'; recipients: string[] } =
+      { dispatched: false, status: 'SKIPPED', recipients };
+    if (settings.emailEnabled && recipients.length > 0) {
+      emailResult = await sendCriticalStockAlertEmail({
+        restaurantName, stockName: params.stockName, quantity: params.quantity,
+        minThreshold: params.minThreshold, unit: params.unit, supplierName: params.supplierName,
+        recipients, smtpConfig: settings.smtpHost ? { host: settings.smtpHost,
+          port: settings.smtpPort, secure: settings.smtpSecure, user: settings.smtpUser,
+          pass: settings.smtpPass, from: settings.smtpFrom } : undefined,
+      });
+    }
+    const title = `Stock critique : ${params.stockName}`;
+    const message = `${params.stockName} est à ${params.quantity} ${params.unit} (seuil minimal : ${params.minThreshold} ${params.unit}).`;
+    const notification = settings.inAppEnabled ? await postgresRestaurantRepository.createNotification({
+      rid, type: 'STOCK_CRITICAL', title, message, stockId: params.stockId,
+      emailDispatched: emailResult.dispatched, emailRecipients: emailResult.recipients.join(', '),
+      emailStatus: emailResult.status,
+    }) : null;
+    await postgresRestaurantRepository.recordAudit({
+      actorUserId: params.auth?.userId ?? null,
+      actorEmail: params.auth?.email ?? 'system@restomax.ci',
+      actorRole: params.auth?.role ?? 'SYSTEM', restaurantId: rid,
+      action: 'STOCK_CRITICAL_ALERT', targetType: 'STOCK', targetId: params.stockId,
+      details: `${params.stockName}: ${params.quantity}/${params.minThreshold} ${params.unit} (email=${emailResult.status})`,
+    });
+    broadcastRestaurantEvent(rid, 'stock:alert', {
+      stockId: params.stockId, name: params.stockName, quantity: params.quantity,
+      minThreshold: params.minThreshold, unit: params.unit,
+      notificationId: notification?.id || null, emailStatus: emailResult.status,
+    });
+    return { notification, emailStatus: emailResult.status, recipients: emailResult.recipients };
   }
 
   async createStockItem(auth: AuthContext, body: Record<string, unknown>) {
@@ -1132,7 +1174,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       smtpFrom: typeof smtpFrom === 'string' ? smtpFrom.trim() : current.smtpFrom,
     });
 
-    recordAudit(getDb(), {
+    if (isPostgresMode()) await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'STOCK_ALERT_CONFIG_UPDATED', targetType: 'RESTAURANT', targetId: rid, details: `inApp=${updated.inAppEnabled} email=${updated.emailEnabled} smtp=${updated.smtpHost || 'ENV'}` });
+    else recordAudit(getDb(), {
       actorUserId: auth.userId,
       actorEmail: auth.email,
       actorRole: auth.role,
@@ -1190,7 +1233,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async triggerManualStockAlert(auth: AuthContext, stockId: string) {
     const rid = auth.restaurantId!;
-    const stock = restaurantRepository.findStockById(stockId, rid);
+    const stock = isPostgresMode() ? await postgresRestaurantRepository.findStockById(stockId, rid) : restaurantRepository.findStockById(stockId, rid);
     if (!stock) {
       throw new AppError(404, 'Article de stock introuvable.');
     }
