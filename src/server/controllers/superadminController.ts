@@ -14,7 +14,7 @@ export const superadminController = {
 
   async listRestaurants(_req: Request, res: Response) {
     try {
-      const restaurants = superadminService.listRestaurants();
+      const restaurants = await superadminService.listRestaurants();
       res.json({ restaurants });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement restaurants.');
@@ -23,7 +23,7 @@ export const superadminController = {
 
   async createRestaurant(req: Request, res: Response) {
     try {
-      const id = superadminService.createRestaurant(req.auth!, req.body || {});
+      const id = await superadminService.createRestaurant(req.auth!, req.body || {});
       res.status(201).json({ id });
     } catch (err) {
       handleControllerError(res, err, 'Erreur création restaurant.');
@@ -45,7 +45,7 @@ export const superadminController = {
 
   async listPlans(_req: Request, res: Response) {
     try {
-      const plans = superadminService.listPlans();
+      const plans = await superadminService.listPlans();
       res.json({ plans });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement plans.');
@@ -54,7 +54,7 @@ export const superadminController = {
 
   async updatePlan(req: Request, res: Response) {
     try {
-      superadminService.updatePlan(
+      await superadminService.updatePlan(
         req.auth!,
         String(req.params.id),
         req.body || {},
@@ -67,7 +67,7 @@ export const superadminController = {
 
   async listSubscriptions(_req: Request, res: Response) {
     try {
-      const subscriptions = superadminService.listSubscriptions();
+      const subscriptions = await superadminService.listSubscriptions();
       res.json({ subscriptions });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement abonnements.');
@@ -76,7 +76,7 @@ export const superadminController = {
 
   async listInvoices(_req: Request, res: Response) {
     try {
-      const invoices = superadminService.listInvoices();
+      const invoices = await superadminService.listInvoices();
       res.json({ invoices });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement facturation.');
@@ -85,7 +85,7 @@ export const superadminController = {
 
   async markInvoicePaid(req: Request, res: Response) {
     try {
-      superadminService.markInvoicePaid(req.auth!, String(req.params.id));
+      await superadminService.markInvoicePaid(req.auth!, String(req.params.id));
       res.json({ ok: true });
     } catch (err) {
       handleControllerError(res, err, 'Erreur validation facture.');
@@ -94,7 +94,7 @@ export const superadminController = {
 
   async listUsers(_req: Request, res: Response) {
     try {
-      const users = superadminService.listUsers();
+      const users = await superadminService.listUsers();
       res.json({ users });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement utilisateurs.');
@@ -103,7 +103,7 @@ export const superadminController = {
 
   async updateUserStatus(req: Request, res: Response) {
     try {
-      superadminService.updateUserStatus(
+      await superadminService.updateUserStatus(
         req.auth!,
         String(req.params.id),
         req.body?.status,
@@ -116,7 +116,7 @@ export const superadminController = {
 
   async listTickets(_req: Request, res: Response) {
     try {
-      const data = superadminService.listTicketsAndLeads();
+      const data = await superadminService.listTicketsAndLeads();
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement support.');
@@ -125,7 +125,7 @@ export const superadminController = {
 
   async replyToTicket(req: Request, res: Response) {
     try {
-      superadminService.replyToTicket(
+      await superadminService.replyToTicket(
         req.auth!,
         String(req.params.id),
         req.body || {},
@@ -138,7 +138,7 @@ export const superadminController = {
 
   async listAuditLogs(_req: Request, res: Response) {
     try {
-      const logs = superadminService.listAuditLogs();
+      const logs = await superadminService.listAuditLogs();
       res.json({ logs });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement journal audit.');
@@ -147,7 +147,7 @@ export const superadminController = {
 
   async getSettings(_req: Request, res: Response) {
     try {
-      const settings = superadminService.getPlatformSettings();
+      const settings = await superadminService.getPlatformSettings();
       res.json({ settings });
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement paramètres.');
@@ -156,7 +156,7 @@ export const superadminController = {
 
   async updateSettings(req: Request, res: Response) {
     try {
-      superadminService.updatePlatformSettings(req.auth!, req.body || {});
+      await superadminService.updatePlatformSettings(req.auth!, req.body || {});
       res.json({ ok: true });
     } catch (err) {
       handleControllerError(res, err, 'Erreur mise à jour paramètres.');
