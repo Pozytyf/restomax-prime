@@ -29,11 +29,8 @@ async function ensureInitialized(): Promise<void> {
         await runKnexMigrations();
         return;
       }
-      try {
-        await runKnexMigrations();
-      } catch (err) {
-        console.warn('[Vercel/API] Knex migration notice:', err);
-      }
+      // Until explicit cutover, keep the legacy SQLite runtime unchanged.
+      // Do not mutate PostgreSQL while the application is still using SQLite.
       getDb();
     })().catch((err) => {
       initPromise = null;
