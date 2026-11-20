@@ -4,6 +4,7 @@ import { BookOpen, Plus, Trash2, X } from 'lucide-react';
 import { RestaurantLayout } from '../RestaurantLayout';
 import { ResilientImage } from '../../components/ResilientImage';
 import { apiFetch } from '../../services/api';
+import { uploadRestaurantImage } from '../../utils/imageUpload';
 import { useToast } from '../../components/Toast';
 import { formatFcfa } from '../../utils/format';
 import type {
@@ -30,6 +31,7 @@ export function MenuCatalogPage() {
   const [stocks, setStocks] = useState<StockItem[]>([]);
   const [showItemForm, setShowItemForm] = useState(false);
   const [showCatForm, setShowCatForm] = useState(false);
+  const [itemImageFile, setItemImageFile] = useState<File | null>(null);
 
   const [catForm, setCatForm] = useState({ name: '', station: 'KITCHEN' });
   const [itemForm, setItemForm] = useState({
@@ -92,9 +94,10 @@ export function MenuCatalogPage() {
   const handleCreateItem = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const imageUrl = itemImageFile ? await uploadRestaurantImage(itemImageFile, 'menu') : null;
       await apiFetch('/api/restaurant/menu/items', {
         method: 'POST',
-        body: JSON.stringify(itemForm),
+        body: JSON.stringify({ ...itemForm, imageUrl }),
       });
       notify(t('menu.itemAdded'), 'success');
       setItemForm((f) => ({
@@ -104,6 +107,7 @@ export function MenuCatalogPage() {
         priceXof: 5000,
         costPriceXof: 2000,
       }));
+      setItemImageFile(null);
       setShowItemForm(false);
       load();
     } catch (err) {
@@ -345,6 +349,16 @@ export function MenuCatalogPage() {
                 className="w-full px-3 py-2 rounded-lg border border-[var(--rm-border-input)] bg-[var(--rm-surface)] text-[var(--rm-ink)] text-sm tabular-nums"
               />
             </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-semibold text-[var(--rm-ink)] mb-1">Photo de l’article (JPG, PNG, WebP · 5 Mo max.)</label>
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={(e) => setItemImageFile(e.target.files?.[0] || null)}
+                className="w-full text-xs text-[var(--rm-ink)]"
+              />
+              {itemImageFile && <p className="mt-1 text-[11px] text-[var(--rm-ink-muted)]">{itemImageFile.name}</p>}
+            </div>
             <button
               type="submit"
               className="py-2.5 px-4 rounded-lg bg-[#FF8738] hover:bg-[#F07322] text-white text-xs font-semibold cursor-pointer"
@@ -412,6 +426,31 @@ export function MenuCatalogPage() {
                     {formatFcfa(item.priceXof)}
                   </span>
                   <div className="flex items-center gap-2">
+                    <label className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[var(--rm-border)] text-[var(--rm-ink)] hover:border-[#FF8738] text-xs font-semibold cursor-pointer">
+                      Photo
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            const imageUrl = await uploadRestaurantImage(file, 'menu');
+                            await apiFetch(`/api/restaurant/menu/items/${item.id}`, {
+                              method: 'PATCH',
+                              body: JSON.stringify({ imageUrl }),
+                            });
+                            notify('Photo de l’article enregistrée.', 'success');
+                            load();
+                          } catch (err) {
+                            notify(err instanceof Error ? err.message : 'Échec de l’envoi de la photo.', 'error');
+                          } finally {
+                            e.currentTarget.value = '';
+                          }
+                        }}
+                      />
+                    </label>
                     <button
                       type="button"
                       data-testid={`recipe-btn-${item.id}`}
