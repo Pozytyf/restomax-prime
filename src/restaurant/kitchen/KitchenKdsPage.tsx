@@ -928,7 +928,7 @@ export function KitchenKdsPage() {
 
                     {/* Batch actions are only available in the combined overview. */}
                     {fixedStation === 'ALL' && (
-                    {/* Batch Action Bar when group has multiple orders */}
+                      {/* Batch Action Bar when group has multiple orders */}
                     {grp.orders.length > 1 &&
                       (pendingIds.length > 0 ||
                         prepIds.length > 0 ||
