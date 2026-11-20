@@ -158,20 +158,21 @@ export function KitchenKdsPage() {
     }
   };
 
-  const updateItemPrepStatus = async (orderId: string, itemId: string, prepStatus: string) => {
+  const updateItemPrepStatus = async (orderId: string, itemId: string, prepStatus: string, refresh = true) => {
     try {
       await apiFetch(`/api/restaurant/orders/${orderId}/items/${itemId}/prep-status`, {
         method: 'PATCH',
         body: JSON.stringify({ prepStatus }),
       });
-      load();
+      if (refresh) load();
     } catch (err) {
       notify(err instanceof Error ? err.message : t('kitchen.updateError'), 'error');
     }
   };
 
   const updateVisibleItemsPrepStatus = async (orderId: string, visibleItems: OrderItem[], prepStatus: string) => {
-    await Promise.all(visibleItems.map((item) => updateItemPrepStatus(orderId, item.id, prepStatus)));
+    await Promise.all(visibleItems.map((item) => updateItemPrepStatus(orderId, item.id, prepStatus, false)));
+    load();
   };
 
   const getNextItemPrepStatus = (status: OrderItem['prepStatus']) =>
