@@ -67,7 +67,7 @@ export class SuperadminService extends BaseService<SuperadminRepository> {
       typeof ownerEmail !== 'string' ||
       typeof initialPassword !== 'string' || initialPassword.length < 12
     ) {
-      throw new AppError(400, 'Nom, propriétaire et email requis.');
+      throw new AppError(400, 'Nom, propriétaire, email et mot de passe initial (12 caractères minimum) requis.');
     }
 
     const cleanEmail = ownerEmail.trim().toLowerCase();
