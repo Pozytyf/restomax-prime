@@ -23,6 +23,7 @@ test('1. Supabase DB URL detection & automatic SSL config in Knex', () => {
 
   const cfg = buildPostgresKnexConfig(supabaseUrl);
   assert.equal(cfg.client, 'pg');
+  assert.equal((cfg.pool as { max: number }).max, 1);
   assert.deepEqual(
     (cfg.connection as { ssl: unknown }).ssl,
     { rejectUnauthorized: false },
@@ -195,7 +196,7 @@ test('4. Full Knex migration 0004 runs cleanly and Vercel config + api/index.ts 
   assert.equal(vercelConfig.env.DATABASE_CLIENT, 'pg');
   assert.equal(vercelConfig.env.DATABASE_SSL, 'true');
   assert.equal(vercelConfig.env.DB_POOL_MIN, '0');
-  assert.equal(vercelConfig.env.DB_POOL_MAX, '5');
+  assert.equal(vercelConfig.env.DB_POOL_MAX, '1');
   assert.equal(
     vercelConfig.functions['api/index.ts']?.includeFiles,
     'src/server/migrations/**',
