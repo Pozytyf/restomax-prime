@@ -43,7 +43,7 @@ export function createRestaurantImageUpload(rid: string, kind: unknown, mime: un
   const encodedPath = '/' + [BUCKET, ...key.split('/')].map(awsEncode).join('/');
   const host = endpointUrl.host;
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[:-]|\\.\\d{3}/g, '');
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, '');
   const dateStamp = amzDate.slice(0, 8);
   const scope = `${dateStamp}/${region}/s3/aws4_request`;
   const params: Record<string, string> = {
@@ -55,11 +55,11 @@ export function createRestaurantImageUpload(rid: string, kind: unknown, mime: un
   };
   const canonicalQuery = Object.entries(params)
     .map(([k, v]) => [awsEncode(k), awsEncode(v)] as const)
-    .sort((a, b) => a[0].localeCompare(b[0]))
+    .sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)
     .map(([k, v]) => `${k}=${v}`).join('&');
-  const canonicalHeaders = `content-type:${contentType}\\nhost:${host}\\n`;
-  const canonicalRequest = ['PUT', encodedPath, canonicalQuery, canonicalHeaders, 'content-type;host', 'UNSIGNED-PAYLOAD'].join('\\n');
-  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, createHash('sha256').update(canonicalRequest).digest('hex')].join('\\n');
+  const canonicalHeaders = `content-type:${contentType}\nhost:${host}\n`;
+  const canonicalRequest = ['PUT', encodedPath, canonicalQuery, canonicalHeaders, 'content-type;host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const stringToSign = ['AWS4-HMAC-SHA256', amzDate, scope, createHash('sha256').update(canonicalRequest).digest('hex')].join('\n');
   const dateKey = hmac('AWS4' + secretKey, dateStamp);
   const regionKey = hmac(dateKey, region);
   const serviceKey = hmac(regionKey, 's3');
