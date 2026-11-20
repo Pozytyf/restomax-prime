@@ -23,7 +23,7 @@ export const restaurantController = {
 
   async createCategory(req: Request, res: Response) {
     try {
-      const category = restaurantService.createCategory(
+      const category = await restaurantService.createCategory(
         req.auth!.restaurantId!,
         req.body || {},
       );
@@ -298,7 +298,7 @@ export const restaurantController = {
 
   async markNotificationsRead(req: Request, res: Response) {
     try {
-      restaurantService.markNotificationsRead(
+      await restaurantService.markNotificationsRead(
         req.auth!.restaurantId!,
         req.body || {},
       );
@@ -461,7 +461,7 @@ export const restaurantController = {
     }
   },
 
-  getTickets(req: Request, res: Response) {
+  async getTickets(req: Request, res: Response) {
     try {
       const tickets = restaurantService.getTickets(req.auth!.restaurantId!);
       res.json({ tickets });
@@ -470,7 +470,7 @@ export const restaurantController = {
     }
   },
 
-  createTicket(req: Request, res: Response) {
+  async createTicket(req: Request, res: Response) {
     try {
       const id = restaurantService.createTicket(req.auth!, req.body || {});
       res.status(201).json({ id });
