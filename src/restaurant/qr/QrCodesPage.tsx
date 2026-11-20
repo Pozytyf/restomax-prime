@@ -13,6 +13,7 @@ function printQrCards(tableId?: string) {
   body.dataset.qrPrintMode = tableId ? 'single' : 'all';
   if (tableId) body.dataset.qrPrintTable = tableId;
   else delete body.dataset.qrPrintTable;
+  cards.forEach((card) => card.classList.toggle('qr-print-selected', Boolean(tableId) && card.dataset.qrTableId === tableId));
   window.addEventListener('afterprint', cleanup, { once: true });
   window.print();
   window.setTimeout(cleanup, 60000);
