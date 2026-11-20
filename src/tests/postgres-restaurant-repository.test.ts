@@ -10,7 +10,7 @@ let repository: PostgresRestaurantRepository;
 before(async () => {
   db = createKnexInstance(':memory:');
   await db.schema.createTable('restaurants', t => { t.string('id').primary(); t.float('tax_rate_percent'); t.string('paydunya_mode'); });
-  await db.schema.createTable('dining_tables', t => { t.string('id').primary(); t.string('restaurant_id'); t.string('status'); });
+  await db.schema.createTable('dining_tables', t => { t.string('id').primary(); t.string('restaurant_id'); t.string('zone'); t.string('label'); t.integer('capacity'); t.string('status'); });
   await db.schema.createTable('orders', t => {
     t.string('id').primary(); t.string('restaurant_id'); t.string('order_number');
     t.string('order_type'); t.string('table_id'); t.string('customer_name'); t.string('status');
