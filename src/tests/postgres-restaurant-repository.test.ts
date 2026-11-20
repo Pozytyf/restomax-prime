@@ -83,6 +83,22 @@ test('POS order and recipe stock deduction commit atomically', async () => {
   assert.equal(await db('stock_movements').where({ stock_id: 'stock_1' }).count('* as n').first().then(x => Number(x?.n)), 1);
 });
 
+test('a duplicate POS idempotency key rolls back order and stock changes', async () => {
+  await assert.rejects(repository.createPosOrderTransaction({
+    orderId: 'order_duplicate', rid: 'rest_1', orderNumber: 'CMD-1002',
+    orderType: 'DINE_IN', tableId: 'table_1', customerName: 'Duplicate',
+    subtotalXof: 100, discountXof: 0, taxXof: 0, totalXof: 100,
+    notes: '', idempotencyKey: 'pos-1', userId: 'user_1',
+    now: '2026-11-20T00:03:00.000Z',
+    lines: [{ id: 'line_duplicate', menuItemId: 'menu_1', name: 'Riz sauce',
+      station: 'KITCHEN', unitPriceXof: 50, optionsSummary: '',
+      optionsDeltaXof: 0, quantity: 2, lineTotalXof: 100, notes: '' }],
+  }));
+  assert.equal(await db('orders').where({ id: 'order_duplicate' }).count('* as n').first().then(x => Number(x?.n)), 0);
+  assert.equal(Number((await db('stocks').where({ id: 'stock_1' }).first())?.quantity), 4);
+  assert.equal(await db('stock_movements').where({ stock_id: 'stock_1' }).count('* as n').first().then(x => Number(x?.n)), 1);
+});
+
 test('payment settlement is idempotent, respects outstanding balance, and releases table only when paid', async () => {
   const base = { rid: 'rest_1', orderId: 'order_1', paymentId: 'pay_1',
     amountXof: 40, method: 'CASH', mode: 'TEST', reference: 'TEST-CASH-100001',
