@@ -20,6 +20,15 @@ async function ensureInitialized(): Promise<void> {
           '[Vercel/API] Supabase PostgreSQL configured but initial ping failed; verify SUPABASE_DB_URL / DATABASE_URL.',
         );
       }
+      const postgresCutover = process.env.RESTOMAX_POSTGRES_CUTOVER === 'true';
+      if (postgresCutover) {
+        if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
+          throw new Error('PostgreSQL cutover requested but DATABASE_URL / SUPABASE_DB_URL is missing.');
+        }
+        // Fail closed: never fall back to ephemeral SQLite after the cutover.
+        await runKnexMigrations();
+        return;
+      }
       try {
         await runKnexMigrations();
       } catch (err) {
