@@ -128,9 +128,9 @@ export class SuperadminRepository extends BaseRepository {
     const db = getDb();
     return (
       (db
-        .prepare('SELECT id, trial_days FROM plans WHERE code = ?')
+        .prepare('SELECT id, trial_days FROM plans WHERE code = ? AND active = 1')
         .get(planCode) as { id: string; trial_days: number } | undefined) ||
-      (db.prepare('SELECT id, trial_days FROM plans LIMIT 1').get() as {
+      (db.prepare('SELECT id, trial_days FROM plans WHERE active = 1 ORDER BY created_at ASC LIMIT 1').get() as {
         id: string;
         trial_days: number;
       })
