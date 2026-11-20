@@ -107,6 +107,20 @@ export const restaurantController = {
     }
   },
 
+  async updateOrderItemPrepStatus(req: Request, res: Response) {
+    try {
+      await restaurantService.updateOrderItemPrepStatus(
+        req.auth!,
+        String(req.params.id),
+        String(req.params.itemId),
+        req.body?.prepStatus,
+      );
+      res.json({ ok: true });
+    } catch (err) {
+      handleControllerError(res, err, 'Erreur mise à jour préparation article.');
+    }
+  },
+
   async updateOrderStatus(req: Request, res: Response) {
     try {
       await restaurantService.updateOrderStatus(
