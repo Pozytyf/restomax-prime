@@ -88,7 +88,27 @@ CREATE TABLE IF NOT EXISTS public.restaurants (
   created_at TEXT NOT NULL
 );
 
--- 4. Utilisateurs, Membres & Sessions
+-- 4. Rôles RBAC, Utilisateurs, Membres & Sessions
+CREATE TABLE IF NOT EXISTS public.roles (
+  id TEXT PRIMARY KEY,
+  code TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  default_permissions_json TEXT NOT NULL DEFAULT '[]',
+  is_system BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TEXT NOT NULL DEFAULT (to_char(timezone('UTC', now()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+);
+
+INSERT INTO public.roles (id, code, name, description, default_permissions_json, is_system)
+VALUES
+  ('role_super_admin', 'SUPER_ADMIN', 'Super Administrateur', 'Accès global plateforme SaaS multi-tenant.', '["superadmin:all"]', TRUE),
+  ('role_owner', 'OWNER', 'Propriétaire', 'Accès complet à son restaurant, facturation, équipe et paramètres.', '["dashboard:read","orders:read","orders:write","pos:use","pos:pay","pos:refund","floor:read","floor:write","kitchen:read","kitchen:write","menu:read","menu:write","stocks:read","stocks:write","staff:read","staff:manage","customers:read","customers:write","reservations:read","reservations:write","qr:read","qr:manage","finance:read","reports:read","settings:read","settings:write"]', TRUE),
+  ('role_manager', 'MANAGER', 'Gérant', 'Pilotage opérationnel complet hors suppression d''établissement ou gestion globale propriétaire.', '["dashboard:read","orders:read","orders:write","pos:use","pos:pay","pos:refund","floor:read","floor:write","kitchen:read","kitchen:write","menu:read","menu:write","stocks:read","stocks:write","staff:read","customers:read","customers:write","reservations:read","reservations:write","qr:read","qr:manage","finance:read","reports:read","settings:read"]', TRUE),
+  ('role_cashier', 'CASHIER', 'Caissier', 'Prise de commandes POS, encaissements et fidélité clients.', '["dashboard:read","orders:read","orders:write","pos:use","pos:pay","floor:read","menu:read","customers:read","customers:write"]', TRUE),
+  ('role_waiter', 'WAITER', 'Serveur', 'Prise de commandes en salle, gestion des tables et réservations.', '["orders:read","orders:write","pos:use","floor:read","floor:write","menu:read","reservations:read","reservations:write","qr:read"]', TRUE),
+  ('role_kitchen_bar', 'KITCHEN_BAR', 'Cuisine & Bar', 'Écran KDS, suivi préparation cuisine/bar et consultation stocks.', '["orders:read","kitchen:read","kitchen:write","menu:read","stocks:read"]', TRUE)
+ON CONFLICT (code) DO NOTHING;
+
 CREATE TABLE IF NOT EXISTS public.users (
   id TEXT PRIMARY KEY,
   tenant_id TEXT REFERENCES public.tenants(id) ON DELETE CASCADE,
@@ -96,7 +116,7 @@ CREATE TABLE IF NOT EXISTS public.users (
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
   phone TEXT,
-  role TEXT NOT NULL DEFAULT 'OWNER',
+  role TEXT NOT NULL DEFAULT 'OWNER' REFERENCES public.roles(code) ON UPDATE CASCADE,
   global_role TEXT NOT NULL DEFAULT 'USER',
   permissions_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'ACTIVE',
@@ -110,7 +130,7 @@ CREATE TABLE IF NOT EXISTS public.restaurant_members (
   id TEXT PRIMARY KEY,
   restaurant_id TEXT NOT NULL REFERENCES public.restaurants(id) ON DELETE CASCADE,
   user_id TEXT NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
-  role TEXT NOT NULL,
+  role TEXT NOT NULL REFERENCES public.roles(code) ON UPDATE CASCADE,
   custom_permissions_json TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'ACTIVE',
   created_at TEXT NOT NULL,
@@ -507,6 +527,7 @@ $$;
 -- Activation RLS sur les tables métier
 ALTER TABLE public.restaurants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tenants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.roles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.restaurant_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.menu_categories ENABLE ROW LEVEL SECURITY;
@@ -526,10 +547,13 @@ ALTER TABLE public.reservations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.support_tickets ENABLE ROW LEVEL SECURITY;
 
--- Lecture publique contrôlée pour les plans actifs & menu QR
+-- Lecture publique contrôlée pour les plans actifs & rôles authentifiés
 ALTER TABLE public.plans ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS plans_public_read ON public.plans;
 CREATE POLICY plans_public_read ON public.plans FOR SELECT USING (active = 1);
+
+DROP POLICY IF EXISTS roles_read_authenticated ON public.roles;
+CREATE POLICY roles_read_authenticated ON public.roles FOR SELECT TO authenticated USING (TRUE);
 
 -- Politiques d'isolation tenant (le rôle service_role backend contourne automatiquement la RLS)
 DO $$

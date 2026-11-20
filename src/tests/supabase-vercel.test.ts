@@ -74,6 +74,7 @@ test('3. Supabase schema.sql & seed.sql contain all multi-tenant tables, RLS, an
     'plans',
     'tenants',
     'restaurants',
+    'roles',
     'users',
     'restaurant_members',
     'sessions',
@@ -113,6 +114,34 @@ test('3. Supabase schema.sql & seed.sql contain all multi-tenant tables, RLS, an
   assert.equal(schemaSql.includes('public.current_tenant_id()'), true);
   assert.equal(schemaSql.includes('supabase_realtime'), true);
   assert.equal(schemaSql.includes('trg_restaurants_sync_tenant'), true);
+
+  const coreMigrationPath = path.resolve(
+    process.cwd(),
+    'supabase/migrations/202611200001_core_schema.sql',
+  );
+  assert.equal(fs.existsSync(coreMigrationPath), true);
+  const coreMigrationSql = fs.readFileSync(coreMigrationPath, 'utf8');
+  for (const tbl of [
+    'tenants',
+    'restaurants',
+    'roles',
+    'users',
+    'restaurant_members',
+    'menu_categories',
+    'menu_items',
+    'dining_tables',
+    'orders',
+    'order_items',
+  ]) {
+    assert.equal(
+      coreMigrationSql.includes(`CREATE TABLE IF NOT EXISTS public.${tbl}`),
+      true,
+      `Missing core table ${tbl} in core migration SQL`,
+    );
+  }
+  assert.equal(coreMigrationSql.includes("'role_owner'"), true);
+  assert.equal(coreMigrationSql.includes("'OWNER'"), true);
+  assert.equal(coreMigrationSql.includes('tenant_isolation_order_items'), true);
 
   const seedSql = fs.readFileSync(seedPath, 'utf8');
   assert.equal(seedSql.includes('rest_sillage_01'), true);
