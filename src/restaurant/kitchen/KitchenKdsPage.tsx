@@ -157,6 +157,23 @@ export function KitchenKdsPage() {
     }
   };
 
+  const updateItemPrepStatus = async (orderId: string, itemId: string, prepStatus: string) => {
+    try {
+      await apiFetch(`/api/restaurant/orders/${orderId}/items/${itemId}/prep-status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ prepStatus }),
+      });
+      load();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : t('kitchen.updateError'), 'error');
+    }
+  };
+
+  const getNextItemPrepStatus = (status: OrderItem['prepStatus']) =>
+    status === 'PENDING' ? 'PREPARING' :
+    status === 'PREPARING' ? 'READY' :
+    status === 'READY' ? 'SERVED' : 'PENDING';
+
   const updateBatchStatus = async (orderIds: string[], status: string) => {
     if (orderIds.length === 0) return;
     try {
@@ -271,33 +288,9 @@ export function KitchenKdsPage() {
       >
         <Printer className="w-3.5 h-3.5" />
       </button>
-      {ord.status === 'PENDING' && (
-        <button
-          type="button"
-          onClick={() => void updateStatus(ord.id, 'IN_PREPARATION')}
-          className="flex-1 py-2 px-3 rounded-lg bg-[#FF8738] hover:bg-[#F07322] text-white text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors"
-        >
-          {t('kitchen.startPrep')}
-        </button>
-      )}
-      {ord.status === 'IN_PREPARATION' && (
-        <button
-          type="button"
-          onClick={() => void updateStatus(ord.id, 'READY')}
-          className="flex-1 py-2 px-3 rounded-lg bg-[#14B8A6] hover:opacity-90 text-white text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors"
-        >
-          {t('kitchen.markReady')}
-        </button>
-      )}
-      {ord.status === 'READY' && (
-        <button
-          type="button"
-          onClick={() => void updateStatus(ord.id, 'SERVED')}
-          className="flex-1 py-2 px-3 rounded-lg bg-[#182333] hover:bg-[#223044] dark:bg-[#223044] dark:hover:bg-[#2D4059] text-white text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors"
-        >
-          {t('kitchen.servedBtn')}
-        </button>
-      )}
+      <span className="text-[11px] text-[var(--rm-ink-muted)]">
+        Avancement géré article par article
+      </span>
     </div>
   );
 
@@ -577,6 +570,13 @@ export function KitchenKdsPage() {
                                         ? t('common.bar')
                                         : t('common.kitchen')}
                                     </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
+                                      className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
+                                    >
+                                      {line.prepStatus === 'PENDING' ? 'Démarrer' : line.prepStatus === 'PREPARING' ? 'Prêt' : line.prepStatus === 'READY' ? 'Servi' : 'Reprendre'}
+                                    </button>
                                   </li>
                                 ))}
                               </ul>
@@ -677,6 +677,13 @@ export function KitchenKdsPage() {
                                 ? t('common.bar')
                                 : t('common.kitchen')}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
+                              className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
+                            >
+                              {line.prepStatus === 'PENDING' ? 'Démarrer' : line.prepStatus === 'PREPARING' ? 'Prêt' : line.prepStatus === 'READY' ? 'Servi' : 'Reprendre'}
+                            </button>
                           </li>
                         ))}
                       </ul>
@@ -847,6 +854,13 @@ export function KitchenKdsPage() {
                                       ? t('common.bar')
                                       : t('common.kitchen')}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
+                                    className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
+                                  >
+                                    {line.prepStatus === 'PENDING' ? 'Démarrer' : line.prepStatus === 'PREPARING' ? 'Prêt' : line.prepStatus === 'READY' ? 'Servi' : 'Reprendre'}
+                                  </button>
                                 </li>
                               ))}
                             </ul>
