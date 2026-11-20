@@ -157,10 +157,17 @@ function printThermalPreview(previewText: string, paperWidth: '58mm' | '80mm', l
   frame.style.height = '0';
   frame.style.border = '0';
   frame.onload = () => {
-    window.setTimeout(() => {
+    const print = () => window.setTimeout(() => {
       frame.contentWindow?.focus();
       frame.contentWindow?.print();
     }, 100);
+    const logo = frame.contentDocument?.querySelector('img');
+    if (logo && !logo.complete) {
+      logo.addEventListener('load', print, { once: true });
+      logo.addEventListener('error', print, { once: true });
+    } else {
+      print();
+    }
   };
   document.body.appendChild(frame);
   const doc = frame.contentDocument;
