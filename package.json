@@ -14,6 +14,7 @@
     "test:infra": "tsx --test src/tests/supabase-vercel.test.ts",
     "test:auth-repository": "tsx --test src/tests/postgres-auth-repository.test.ts",
     "test:restaurant-repository": "tsx --test src/tests/postgres-restaurant-repository.test.ts",
+    "test:public-repository": "tsx --test src/tests/postgres-public-repository.test.ts",
     "test:auth": "NODE_OPTIONS=--experimental-vm-modules jest",
     "migrate:latest": "tsx src/server/migrate.ts latest",
     "migrate:rollback": "tsx src/server/migrate.ts rollback",
