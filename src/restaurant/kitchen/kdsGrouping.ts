@@ -65,19 +65,36 @@ export function filterKdsOrders(
   statusFilter: KdsStatusFilter = 'ALL',
 ): KdsOrderWithVisibleItems[] {
   const filtered: KdsOrderWithVisibleItems[] = [];
+  const statusByPrep: Record<OrderItem['prepStatus'], OrderStatus> = {
+    PENDING: 'PENDING',
+    PREPARING: 'IN_PREPARATION',
+    READY: 'READY',
+    SERVED: 'SERVED',
+  };
+  const statusRank: Record<OrderStatus, number> = {
+    PENDING: 0,
+    IN_PREPARATION: 1,
+    READY: 2,
+    SERVED: 3,
+    PAID: 4,
+    CANCELLED: 4,
+  };
+
   for (const order of orders) {
-    if (statusFilter !== 'ALL' && order.status !== statusFilter) {
-      continue;
+    let visibleItems = order.items.filter((item) =>
+      stationFilter === 'ALL' ||
+      String(item.station || '').trim().toUpperCase() === stationFilter,
+    );
+    visibleItems = visibleItems.filter((item) => item.prepStatus !== 'SERVED');
+    if (statusFilter !== 'ALL') {
+      visibleItems = visibleItems.filter((item) => statusByPrep[item.prepStatus] === statusFilter);
     }
-    const visibleItems =
-      stationFilter === 'ALL'
-        ? order.items
-        : order.items.filter(
-            (item) => String(item.station || '').trim().toUpperCase() === stationFilter,
-          );
-    if (visibleItems.length > 0) {
-      filtered.push({ order, visibleItems });
-    }
+    if (visibleItems.length === 0) continue;
+
+    const derivedStatus = visibleItems
+      .map((item) => statusByPrep[item.prepStatus])
+      .sort((a, b) => statusRank[b] - statusRank[a])[0] || order.status;
+    filtered.push({ order: { ...order, status: derivedStatus }, visibleItems });
   }
   return filtered;
 }
