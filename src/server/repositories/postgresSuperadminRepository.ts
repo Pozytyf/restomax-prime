@@ -7,7 +7,7 @@ export class PostgresSuperadminRepository {
 
   async getPlatformDashboardData() {
     const [counts, activeSubs, platformRev, openTickets, usersCount, leadsCount,
-      recentRestaurants, recentAudit, monthlyPlatformSeries] = await Promise.all([
+      recentRestaurants, recentAudit, monthlyPlatformSeries] = (await Promise.all([
       this.db('restaurants').whereNull('deleted_at').select(
         this.db.raw('COUNT(*)::int as total'),
         this.db.raw("COUNT(*) FILTER (WHERE status = 'ACTIVE')::int as active"),
@@ -36,7 +36,7 @@ export class PostgresSuperadminRepository {
           this.db.raw('COUNT(*)::int as invoices'))
         .groupByRaw("TO_CHAR(created_at::timestamp, 'YYYY-MM')")
         .orderBy('month', 'asc'),
-    ]);
+    ])) as any[];
     return { counts, activeSubs, platformRev, openTickets, usersCount, leadsCount,
       recentRestaurants, recentAudit, monthlyPlatformSeries };
   }
