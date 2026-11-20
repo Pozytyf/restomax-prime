@@ -257,18 +257,20 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     res.status(401).json({ error: 'Authentification requise.' });
     return;
   }
-  const usePostgres = ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
-  const ctx = usePostgres
-    ? await resolvePostgresAuthContext(token)
-    : resolveAuthContext(getDb(), token);
-  if (!ctx) {
-    res
-      .status(401)
-      .json({ error: 'Session expirée, révoquée ou compte suspendu.' });
-    return;
+  try {
+    const usePostgres = ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
+    const ctx = usePostgres
+      ? await resolvePostgresAuthContext(token)
+      : resolveAuthContext(getDb(), token);
+    if (!ctx) {
+      res.status(401).json({ error: 'Session expirée, révoquée ou compte suspendu.' });
+      return;
+    }
+    req.auth = ctx;
+    next();
+  } catch {
+    res.status(503).json({ error: 'Service d’authentification temporairement indisponible.' });
   }
-  req.auth = ctx;
-  next();
 }
 
 export function requireSuperAdmin(
