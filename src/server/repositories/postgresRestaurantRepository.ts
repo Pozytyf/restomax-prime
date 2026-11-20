@@ -118,7 +118,7 @@ export class PostgresRestaurantRepository {
   async recordPaymentTransaction(params: {
     rid: string; orderId: string; paymentId: string; amountXof: number;
     method: string; mode: string; reference: string; idempotencyKey: string | null;
-    userId: string; now: string;
+    userId: string; actorEmail: string; actorRole: string; now: string;
   }) {
     return this.db.transaction(async trx => {
       if (params.idempotencyKey) {
@@ -147,7 +147,7 @@ export class PostgresRestaurantRepository {
       if (fullyPaid && order.table_id) await trx('dining_tables')
         .where({ id: order.table_id, restaurant_id: params.rid }).update({ status: 'AVAILABLE' });
       await this.recordAudit({
-        actorUserId: params.userId, actorEmail: '', actorRole: 'SYSTEM',
+        actorUserId: params.userId, actorEmail: params.actorEmail, actorRole: params.actorRole,
         restaurantId: params.rid, action: 'PAYMENT_RECORDED',
         targetType: 'ORDER', targetId: params.orderId,
         details: `${params.amountXof} FCFA via ${params.method} (${params.mode})`,
