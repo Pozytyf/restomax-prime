@@ -9,7 +9,7 @@ export class PostgresRestaurantRepository {
 
   async getDashboardMetrics(rid: string) {
     const [revenueRow, pendingRow, tablesStats, revenueSeries, topItems, lowStocks,
-      paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow] = await Promise.all([
+      paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow] = (await Promise.all([
       this.db('orders').where({ restaurant_id: rid }).whereNot('status', 'CANCELLED')
         .select(this.db.raw('COALESCE(SUM(total_xof), 0) as total_revenue'),
           this.db.raw('COUNT(*)::int as orders_count'),
@@ -45,7 +45,7 @@ export class PostgresRestaurantRepository {
         .sum({ total_expenses: 'amount_xof' }).first(),
       this.db('payments').where({ restaurant_id: rid, status: 'PAID' })
         .sum({ total_paid: 'amount_xof' }).first(),
-    ]);
+    ])) as any[];
     return { revenueRow, pendingRow, tablesStats, revenueSeries, topItems, lowStocks,
       paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow };
   }
