@@ -325,7 +325,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       throw new AppError(404, 'Article introuvable.');
     }
 
-    const { available, priceXof, name, description } = body || {};
+    const { available, priceXof, name, description, imageUrl } = body || {};
     restaurantRepository.updateMenuItem(itemId, rid, {
       available: typeof available === 'boolean' ? available : undefined,
       priceXof:
@@ -338,6 +338,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
           : undefined,
       description:
         typeof description === 'string' ? description.trim() : undefined,
+      imageUrl: typeof imageUrl === 'string' ? imageUrl : undefined,
     });
 
     broadcastRestaurantEvent(rid, 'menu:updated', { itemId });
