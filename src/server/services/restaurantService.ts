@@ -555,6 +555,22 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
+  async updateOrderItemPrepStatus(auth: AuthContext, orderId: string, itemId: string, prepStatus: unknown) {
+    const rid = auth.restaurantId!;
+    const valid = ['PENDING', 'PREPARING', 'READY', 'SERVED'];
+    if (!valid.includes(String(prepStatus))) throw new AppError(400, 'Statut de préparation invalide.');
+    if (!auth.permissions.includes('kitchen:write') && !auth.permissions.includes('orders:write')) {
+      throw new AppError(403, 'Permission insuffisante.');
+    }
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateOrderItemPrepStatus(orderId, itemId, rid, String(prepStatus));
+    } else {
+      restaurantRepository.updateOrderItemPrepStatus(orderId, itemId, rid, String(prepStatus));
+    }
+    broadcastRestaurantEvent(rid, 'order:updated', { orderId, itemId, prepStatus });
+    broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, itemId, prepStatus });
+  }
+
   async updateOrderStatus(auth: AuthContext, orderId: string, status: unknown) {
     if (isPostgresMode()) {
       const rid = auth.restaurantId!;
