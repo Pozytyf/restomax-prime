@@ -18,6 +18,7 @@ export function RestaurantsAdminPage() {
     city: 'Abidjan',
     ownerName: '',
     ownerEmail: '',
+    initialPassword: '',
     phone: '',
     planCode: 'PROFESSIONNEL',
   });
@@ -46,6 +47,7 @@ export function RestaurantsAdminPage() {
         city: 'Abidjan',
         ownerName: '',
         ownerEmail: '',
+        initialPassword: '',
         phone: '',
         planCode: 'PROFESSIONNEL',
       });
@@ -147,6 +149,23 @@ export function RestaurantsAdminPage() {
                 }
                 className="w-full px-3 py-2 rounded-lg border border-[var(--rm-border-input)] bg-[var(--rm-surface)] text-[var(--rm-ink)] text-sm"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--rm-ink)] mb-1">
+                Mot de passe initial (12 caractères minimum)
+              </label>
+              <input
+                required
+                type="password"
+                autoComplete="new-password"
+                minLength={12}
+                value={form.initialPassword}
+                onChange={(e) => setForm({ ...form, initialPassword: e.target.value })}
+                className="w-full px-3 py-2 rounded-lg border border-[var(--rm-border-input)] bg-[var(--rm-surface)] text-[var(--rm-ink)] text-sm"
+              />
+              <p className="mt-1 text-[10px] text-[var(--rm-ink-muted)]">
+                À transmettre au propriétaire par un canal privé.
+              </p>
             </div>
             <div>
               <label className="block text-xs font-semibold text-[var(--rm-ink)] mb-1">
