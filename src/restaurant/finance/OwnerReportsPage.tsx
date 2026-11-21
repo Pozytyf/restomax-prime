@@ -8,11 +8,12 @@ type DailyRow = { day: string; sales_xof?: number; orders_count?: number; collec
 type Report = {
   summary: { ordersCount:number; grossSalesXof:number; collectedXof:number; refundsXof:number;
     netCollectedXof:number; discountsXof:number; cancelledCount:number; cancelledXof:number;
-    outstandingXof:number; averageTicketXof:number; expensesXof:number };
+    outstandingXof:number; averageTicketXof:number; expensesXof:number; taxXof:number };
   dailySales: DailyRow[]; dailyPayments: DailyRow[]; dailyRefunds: DailyRow[];
   byMethod: Array<{method:string;amount_xof:number;count:number}>;
   topItems: Array<{name:string;quantity:number;sales_xof:number}>;
   employees: Array<{user_id:string|null;actor:string;orders_count:number;sales_xof:number;cancelled_count:number}>;
+  cashiers: Array<{user_id:string|null;actor:string;payments_count:number;collected_xof:number}>;
 };
 type AuditRow = {id:string;actorUserId:string|null;actorEmail:string;actorRole:string;action:string;
   targetType:string;targetId:string;details:string;createdAt:string};
@@ -172,6 +173,7 @@ export function OwnerReportsPage() {
             <Stat label="Panier moyen" value={money(report.summary.averageTicketXof)}/>
             <Stat label="Remises accordées" value={money(report.summary.discountsXof)}/>
             <Stat label="Dépenses enregistrées" value={money(report.summary.expensesXof)}/>
+            <Stat label="TVA incluse dans les ventes" value={money(report.summary.taxXof)}/>
           </div>
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
             <section className="rounded-xl border border-[var(--rm-border)] bg-[var(--rm-surface)] p-4">
@@ -185,6 +187,10 @@ export function OwnerReportsPage() {
             <section className="rounded-xl border border-[var(--rm-border)] bg-[var(--rm-surface)] p-4">
               <h3 className="font-bold mb-3">Activité par employé</h3>
               {report.employees.length?report.employees.map((x,i)=><div key={x.user_id||i} className="flex justify-between gap-3 py-2 border-b border-[var(--rm-border)] text-sm"><span>{x.actor}<span className="block text-xs text-[var(--rm-ink-muted)]">{x.orders_count} commande(s) · {x.cancelled_count} annulation(s)</span></span><strong>{money(x.sales_xof)}</strong></div>):<p className="text-sm text-[var(--rm-ink-muted)]">Aucune activité.</p>}
+            </section>
+            <section className="rounded-xl border border-[var(--rm-border)] bg-[var(--rm-surface)] p-4">
+              <h3 className="font-bold mb-3">Encaissements par employé</h3>
+              {report.cashiers.length?report.cashiers.map((x,i)=><div key={x.user_id||i} className="flex justify-between gap-3 py-2 border-b border-[var(--rm-border)] text-sm"><span>{x.actor}<span className="block text-xs text-[var(--rm-ink-muted)]">{x.payments_count} paiement(s)</span></span><strong>{money(x.collected_xof)}</strong></div>):<p className="text-sm text-[var(--rm-ink-muted)]">Aucun encaissement attribué.</p>}
             </section>
             <section className="rounded-xl border border-[var(--rm-border)] bg-[var(--rm-surface)] p-4">
               <h3 className="font-bold mb-3">Synthèse de contrôle</h3>
