@@ -102,6 +102,7 @@ export const fr = {
     reservations: 'Réservations',
     qr: 'QR Codes Tables',
     finance: 'Finances & Rapports',
+    ownerReports: 'Contrôle propriétaire',
     settings: 'Paramètres',
     saOverview: 'Vue Globale',
     saRestaurants: 'Restaurants clients',
