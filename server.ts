@@ -44,15 +44,35 @@ async function startServer() {
   const host = resolveCliArg('--host') || process.env.HOST || '0.0.0.0';
   const isProd = process.env.NODE_ENV === 'production';
   const disableHmr = process.env.DISABLE_HMR === 'true';
+  const postgresCutover = process.env.RESTOMAX_POSTGRES_CUTOVER === 'true';
 
-  // Initialize Knex SQLite3 pool, run initial schema migrations, and ensure seeded tables
+  if (postgresCutover) {
+    const client = (process.env.DATABASE_CLIENT || '').toLowerCase();
+    if (!['pg', 'postgres', 'postgresql'].includes(client)) {
+      throw new Error('PostgreSQL cutover requested but DATABASE_CLIENT is not pg.');
+    }
+    if (!process.env.DATABASE_URL) {
+      throw new Error('PostgreSQL cutover requested but DATABASE_URL is missing.');
+    }
+    if (process.env.DATABASE_MIGRATION_URL) {
+      const migrationHost = new URL(process.env.DATABASE_MIGRATION_URL).hostname;
+      if (migrationHost.includes('-pooler')) {
+        throw new Error('DATABASE_MIGRATION_URL must use the direct PostgreSQL endpoint, not a pooler.');
+      }
+    }
+  }
+
+  // Run migrations against the configured database. SQLite is initialized only
+  // while the legacy runtime is active; after cutover it must never be opened.
   await runKnexMigrations();
-  getDb();
+  if (!postgresCutover) {
+    getDb();
+  }
 
   const app = createExpressApp();
   const httpServer = http.createServer(app);
 
-  // Attach real-time WebSocket server on port 3000
+  // Attach the real-time WebSocket server to the same HTTP listener.
   setupWebSocketServer(httpServer);
 
   if (!isProd) {

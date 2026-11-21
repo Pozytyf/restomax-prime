@@ -65,17 +65,36 @@ export function filterKdsOrders(
   statusFilter: KdsStatusFilter = 'ALL',
 ): KdsOrderWithVisibleItems[] {
   const filtered: KdsOrderWithVisibleItems[] = [];
+  const statusByPrep: Record<OrderItem['prepStatus'], OrderStatus> = {
+    PENDING: 'PENDING',
+    PREPARING: 'IN_PREPARATION',
+    READY: 'READY',
+    SERVED: 'SERVED',
+  };
+  const statusRank: Record<OrderStatus, number> = {
+    PENDING: 0,
+    IN_PREPARATION: 1,
+    READY: 2,
+    SERVED: 3,
+    PAID: 4,
+    CANCELLED: 4,
+  };
+
   for (const order of orders) {
-    if (statusFilter !== 'ALL' && order.status !== statusFilter) {
-      continue;
+    let visibleItems = order.items.filter((item) =>
+      stationFilter === 'ALL' ||
+      String(item.station || '').trim().toUpperCase() === stationFilter,
+    );
+    visibleItems = visibleItems.filter((item) => item.prepStatus !== 'SERVED');
+    if (statusFilter !== 'ALL') {
+      visibleItems = visibleItems.filter((item) => statusByPrep[item.prepStatus] === statusFilter);
     }
-    const visibleItems =
-      stationFilter === 'ALL'
-        ? order.items
-        : order.items.filter((i) => i.station === stationFilter);
-    if (visibleItems.length > 0) {
-      filtered.push({ order, visibleItems });
-    }
+    if (visibleItems.length === 0) continue;
+
+    const derivedStatus = visibleItems
+      .map((item) => statusByPrep[item.prepStatus])
+      .sort((a, b) => statusRank[b] - statusRank[a])[0] || order.status;
+    filtered.push({ order: { ...order, status: derivedStatus }, visibleItems });
   }
   return filtered;
 }
@@ -90,16 +109,24 @@ export function countKdsStatuses(
     IN_PREPARATION: 0,
     READY: 0,
   };
-  const visible = filterKdsOrders(orders, stationFilter, 'ALL');
-  counts.ALL = visible.length;
-  for (const { order } of visible) {
-    if (
-      order.status === 'PENDING' ||
-      order.status === 'IN_PREPARATION' ||
-      order.status === 'READY'
-    ) {
-      counts[order.status as Extract<OrderStatus, 'PENDING' | 'IN_PREPARATION' | 'READY'>] += 1;
-    }
+  const statusByPrep: Record<OrderItem['prepStatus'], OrderStatus> = {
+    PENDING: 'PENDING',
+    PREPARING: 'IN_PREPARATION',
+    READY: 'READY',
+    SERVED: 'SERVED',
+  };
+  for (const order of orders) {
+    const items = order.items.filter((item) =>
+      item.prepStatus !== 'SERVED' &&
+      (stationFilter === 'ALL' ||
+        String(item.station || '').trim().toUpperCase() === stationFilter),
+    );
+    if (items.length === 0) continue;
+    counts.ALL += 1;
+    const statuses = new Set(items.map((item) => statusByPrep[item.prepStatus]));
+    if (statuses.has('PENDING')) counts.PENDING += 1;
+    if (statuses.has('IN_PREPARATION')) counts.IN_PREPARATION += 1;
+    if (statuses.has('READY')) counts.READY += 1;
   }
   return counts;
 }

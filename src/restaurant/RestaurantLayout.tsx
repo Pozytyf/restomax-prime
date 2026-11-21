@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Activity,
   BarChart3,
   CalendarClock,
   ChefHat,
@@ -13,6 +14,7 @@ import {
   UserCheck,
   Users,
   Utensils,
+  Wine,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { AppShell, type NavItem, type ShellAlert } from '../components/AppShell';
@@ -62,6 +64,12 @@ const ALL_NAV: Array<{
     permission: 'kitchen:read',
   },
   {
+    to: '/app/bar',
+    labelKey: 'common.bar',
+    icon: Wine,
+    permission: 'kitchen:read',
+  },
+  {
     to: '/app/menu',
     labelKey: 'nav.menu',
     icon: Utensils,
@@ -102,6 +110,12 @@ const ALL_NAV: Array<{
     labelKey: 'nav.finance',
     icon: BarChart3,
     permission: 'finance:read',
+  },
+  {
+    to: '/app/owner-reports',
+    labelKey: 'nav.ownerReports',
+    icon: Activity,
+    permission: 'reports:read',
   },
   {
     to: '/app/settings',

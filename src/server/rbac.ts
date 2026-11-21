@@ -53,7 +53,6 @@ export const ROLE_PERMISSION_CEILING: Record<Role, Permission[]> = {
     'qr:read',
     'qr:manage',
     'finance:read',
-    'reports:read',
     'settings:read',
   ],
   CASHIER: [

@@ -1,5 +1,5 @@
 import knex, { type Knex } from 'knex';
-import knexConfig, { buildKnexConfig } from './db/knexfile.ts';
+import knexConfig, { buildKnexConfig, buildPostgresKnexConfig } from './db/knexfile.ts';
 import { AppError } from './services/errors.ts';
 
 let singletonKnex: Knex | null = null;
@@ -14,6 +14,32 @@ export function createKnexInstance(dbPath?: string): Knex {
   return knex(config);
 }
 
+/**
+ * Migrations prefer the Neon direct endpoint (DATABASE_MIGRATION_URL).
+ * Runtime queries continue to use DATABASE_URL, which should be pooled.
+ */
+export function createMigrationKnex(): Knex {
+  const client = (process.env.DATABASE_CLIENT || 'sqlite').toLowerCase();
+  const migrationUrl = process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL || '';
+  if (['pg', 'postgres', 'postgresql'].includes(client) && migrationUrl) {
+    return knex(buildKnexConfigForMigration(migrationUrl));
+  }
+  return createKnexInstance();
+}
+
+function buildKnexConfigForMigration(connectionString: string): Knex.Config {
+  const config = buildPostgresKnexConfig(connectionString);
+  return {
+    ...config,
+    pool: {
+      ...config.pool,
+      min: 0,
+      max: 2,
+      acquireTimeoutMillis: 30_000,
+    },
+  };
+}
+
 export function getKnex(): Knex {
   if (!singletonKnex) {
     singletonKnex = createKnexInstance();
@@ -25,8 +51,13 @@ export function setKnexInstance(instance: Knex): void {
   singletonKnex = instance;
 }
 
-export async function runKnexMigrations(instance: Knex = getKnex()) {
-  return instance.migrate.latest();
+export async function runKnexMigrations(instance?: Knex) {
+  const migrationKnex = instance ?? createMigrationKnex();
+  try {
+    return await migrationKnex.migrate.latest();
+  } finally {
+    if (!instance) await migrationKnex.destroy();
+  }
 }
 
 /**

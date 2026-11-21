@@ -1,0 +1,43 @@
+name: Migration safety checks
+
+on:
+  push:
+    branches:
+      - migration/postgres-native
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund --legacy-peer-deps
+      - name: TypeScript validation
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Core tests
+        run: npm test
+      - name: Supabase and Vercel infrastructure tests
+        run: npm run test:infra
+      - name: Auth repository transaction tests
+        run: npm run test:auth-repository
+      - name: Restaurant repository transaction tests
+        run: npm run test:restaurant-repository
+      - name: Public QR repository transaction tests
+        run: npm run test:public-repository
+      - name: Superadmin repository transaction tests
+        run: npm run test:superadmin-repository

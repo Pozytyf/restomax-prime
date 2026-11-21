@@ -20,13 +20,26 @@ async function ensureInitialized(): Promise<void> {
           '[Vercel/API] Supabase PostgreSQL configured but initial ping failed; verify SUPABASE_DB_URL / DATABASE_URL.',
         );
       }
-      try {
+      const postgresCutover = process.env.RESTOMAX_POSTGRES_CUTOVER === 'true';
+      if (postgresCutover) {
+        if (!['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || '').toLowerCase())) {
+          throw new Error('PostgreSQL cutover requested but DATABASE_CLIENT is not pg.');
+        }
+        if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
+          throw new Error('PostgreSQL cutover requested but DATABASE_URL / SUPABASE_DB_URL is missing.');
+        }
+        // Fail closed: never fall back to ephemeral SQLite after the cutover.
         await runKnexMigrations();
-      } catch (err) {
-        console.warn('[Vercel/API] Knex migration notice:', err);
+        return;
       }
+      // Until explicit cutover, keep the legacy SQLite runtime unchanged.
+      // Do not mutate PostgreSQL while the application is still using SQLite.
       getDb();
     })().catch((err) => {
+      console.error('[Vercel/API] Initialization failed:', {
+        name: err instanceof Error ? err.name : 'UnknownError',
+        message: err instanceof Error ? err.message : String(err),
+      });
       initPromise = null;
       throw err;
     });

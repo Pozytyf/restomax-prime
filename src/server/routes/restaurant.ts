@@ -3,6 +3,7 @@ import {
   requireActiveRestaurant,
   requireAuth,
   requirePermission,
+  requireOwner,
 } from '../auth.ts';
 import { restaurantController } from '../controllers/restaurantController.ts';
 
@@ -27,6 +28,10 @@ restaurantRouter.post(
   '/menu/categories',
   requirePermission('menu:write'),
   restaurantController.createCategory,
+);
+restaurantRouter.post(
+  '/media/upload-url',
+  restaurantController.createImageUploadUrl,
 );
 restaurantRouter.post(
   '/menu/items',
@@ -59,6 +64,11 @@ restaurantRouter.post(
   '/orders',
   requirePermission('orders:write'),
   restaurantController.createPosOrder,
+);
+restaurantRouter.patch(
+  '/orders/:id/items/:itemId/prep-status',
+  requirePermission('kitchen:read'),
+  restaurantController.updateOrderItemPrepStatus,
 );
 restaurantRouter.patch(
   '/orders/:id/status',
@@ -202,14 +212,24 @@ restaurantRouter.get(
   requirePermission('finance:read'),
   restaurantController.getFinance,
 );
+restaurantRouter.get(
+  '/owner/reports',
+  requireOwner,
+  restaurantController.getOwnerReport,
+);
+restaurantRouter.get(
+  '/owner/audit',
+  requireOwner,
+  restaurantController.getOwnerAuditLogs,
+);
 restaurantRouter.post(
   '/expenses',
-  requirePermission('finance:read'),
+  requireOwner,
   restaurantController.createExpense,
 );
 restaurantRouter.get(
   '/reports/export',
-  requirePermission('reports:read'),
+  requireOwner,
   restaurantController.exportOrdersCsv,
 );
 

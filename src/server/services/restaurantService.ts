@@ -12,6 +12,10 @@ import {
 } from '../repositories/restaurantRepository.ts';
 import { BaseService } from './BaseService.ts';
 import { AppError } from './errors.ts';
+import { isRestaurantImageUrl } from './neonStorage.ts';
+import { postgresRestaurantRepository } from '../repositories/postgresRestaurantRepository.ts';
+
+const isPostgresMode = () => ['pg', 'postgres', 'postgresql'].includes((process.env.DATABASE_CLIENT || 'sqlite').toLowerCase()) && process.env.RESTOMAX_POSTGRES_CUTOVER === 'true' && Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
 import {
   isEnvSmtpConfigured,
   sendCriticalStockAlertEmail,
@@ -58,7 +62,12 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     super(repo);
   }
 
-  getDashboard(rid: string) {
+  async getDashboard(rid: string) {
+    if (isPostgresMode()) {
+      this.ensureTenantId(rid);
+      const { revenueRow, pendingRow, tablesStats, revenueSeries, topItems, lowStocks, paymentBreakdown, recentOrders, staffActivity, expensesRow, collectedRow } = await postgresRestaurantRepository.getDashboardMetrics(rid);
+      return { kpis: { totalRevenueXof: Number(revenueRow.total_revenue), collectedXof: Number(collectedRow.total_paid || 0), expensesXof: Number(expensesRow.total_expenses || 0), ordersCount: Number(revenueRow.orders_count), avgBasketXof: Math.round(Number(revenueRow.avg_basket)), pendingOrdersCount: Number(pendingRow.c), tablesTotal: Number(tablesStats.total), tablesOccupied: Number(tablesStats.occupied || 0), tablesReserved: Number(tablesStats.reserved || 0) }, revenueSeries, topItems, lowStocks, paymentBreakdown, recentOrders, staffActivity };
+    }
     this.ensureTenantId(rid);
     const {
       revenueRow,
@@ -95,7 +104,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  getMenu(rid: string) {
+  async getMenu(rid: string) {
+    if (isPostgresMode()) {
+      const [categories, itemsRaw, recipes] = await Promise.all([postgresRestaurantRepository.findMenuCategories(rid), postgresRestaurantRepository.findMenuItems(rid), postgresRestaurantRepository.findMenuRecipes(rid)]);
+      const byItem = new Map<string, typeof recipes>();
+      for (const recipe of recipes) { const list = byItem.get(recipe.menuItemId) || []; list.push(recipe); byItem.set(recipe.menuItemId, list); }
+      return { categories: categories.map(c => ({ ...c, active: Boolean(c.active) })), items: itemsRaw.map(item => ({ ...item, available: Boolean(item.available), options: JSON.parse(String(item.options_json || '[]')), recipeLines: byItem.get(String(item.id)) || [] })) };
+    }
     const categories = restaurantRepository.findMenuCategories(rid);
     const itemsRaw = restaurantRepository.findMenuItems(rid);
     const recipes = restaurantRepository.findMenuRecipes(rid);
@@ -116,17 +131,38 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  getRecipes(rid: string, menuItemId?: string) {
+  async getRecipes(rid: string, menuItemId?: string) {
+    if (isPostgresMode()) { this.ensureTenantId(rid); return postgresRestaurantRepository.findMenuRecipes(rid, menuItemId); }
     this.ensureTenantId(rid);
     return restaurantRepository.findMenuRecipes(rid, menuItemId);
   }
 
-  updateMenuItemRecipe(
+  async updateMenuItemRecipe(
     auth: AuthContext,
     menuItemId: string,
     body: Record<string, unknown>,
   ) {
     const rid = auth.restaurantId!;
+    if (isPostgresMode()) {
+      if (!await postgresRestaurantRepository.findMenuItemById(menuItemId, rid)) throw new AppError(404, 'Article du menu introuvable.');
+      const rawLines = Array.isArray(body?.lines) ? body.lines : [];
+      const cleanMap = new Map<string, number>();
+      for (const raw of rawLines) {
+        const row = raw as { stockId?: unknown; quantityPerUnit?: unknown };
+        const stockId = typeof row.stockId === 'string' ? row.stockId.trim() : '';
+        const qty = Number(row.quantityPerUnit);
+        if (!stockId || !Number.isFinite(qty) || qty <= 0) continue;
+        if (!await postgresRestaurantRepository.findStockById(stockId, rid)) throw new AppError(404, 'Ingrédient introuvable pour cet établissement.');
+        cleanMap.set(stockId, Math.round(qty * 1000) / 1000);
+      }
+      const saved = await postgresRestaurantRepository.replaceMenuItemRecipe(rid, menuItemId,
+        Array.from(cleanMap.entries()).map(([stockId, quantityPerUnit]) => ({ stockId, quantityPerUnit })));
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
+        actorRole: auth.role, restaurantId: rid, action: 'MENU_RECIPE_UPDATED',
+        targetType: 'MENU_ITEM', targetId: menuItemId, details: `${saved.length} ingrédient(s) lié(s)` });
+      broadcastRestaurantEvent(rid, 'menu:updated', { itemId: menuItemId });
+      return saved;
+    }
     const item = restaurantRepository.findMenuItemById(menuItemId, rid);
     if (!item) {
       throw new AppError(404, 'Article du menu introuvable.');
@@ -141,7 +177,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       if (!stockId || !Number.isFinite(qty) || qty <= 0) {
         continue;
       }
-      const stock = restaurantRepository.findStockById(stockId, rid);
+      const stock = isPostgresMode()
+      ? await postgresRestaurantRepository.findStockById(stockId, rid)
+      : restaurantRepository.findStockById(stockId, rid);
       if (!stock) {
         throw new AppError(404, 'Ingrédient introuvable pour cet établissement.');
       }
@@ -172,12 +210,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return saved;
   }
 
-  createCategory(rid: string, body: Record<string, unknown>) {
+  async createCategory(rid: string, body: Record<string, unknown>) {
     const { name, station } = body || {};
     if (typeof name !== 'string' || name.trim().length < 2) {
       throw new AppError(400, 'Nom de catégorie requis.');
     }
     const st = station === 'BAR' ? 'BAR' : 'KITCHEN';
+    if (isPostgresMode()) {
+      const count = await postgresRestaurantRepository.countCategories(rid);
+      const id = await postgresRestaurantRepository.createCategory(rid, name.trim(), st, count + 1);
+      return { id, restaurantId: rid, name: name.trim(), station: st, sortOrder: count + 1, active: true };
+    }
     const count = restaurantRepository.countCategories(rid);
     const id = restaurantRepository.createCategory(
       rid,
@@ -195,10 +238,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  createMenuItem(auth: AuthContext, body: Record<string, unknown>) {
+  async createMenuItem(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
-    const { categoryId, name, description, priceXof, costPriceXof, options } =
+    const { categoryId, name, description, priceXof, costPriceXof, options, imageUrl } =
       body || {};
+    if (imageUrl !== undefined && imageUrl !== null && !isRestaurantImageUrl(rid, 'menu', imageUrl)) {
+      throw new AppError(400, 'URL de photo d’article invalide.');
+    }
     if (
       typeof categoryId !== 'string' ||
       typeof name !== 'string' ||
@@ -209,6 +255,22 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       throw new AppError(400, 'Données du produit invalides.');
     }
 
+    if (isPostgresMode()) {
+      if (!await postgresRestaurantRepository.findCategory(categoryId, rid)) throw new AppError(404, 'Catégorie introuvable.');
+      const cleanOptions = Array.isArray(options) ? options.map((o: { label?: string; priceDeltaXof?: number }) => ({
+        id: generateId('opt'), label: String(o.label || '').trim(),
+        priceDeltaXof: Math.max(0, Math.round(Number(o.priceDeltaXof || 0))),
+      })) : [];
+      const roundedPrice = Math.round(Number(priceXof));
+      const id = await postgresRestaurantRepository.createMenuItem({ rid, categoryId,
+        name: name.trim(), description: String(description || '').trim(),
+        priceXof: roundedPrice, costPriceXof: Math.max(0, Math.round(Number(costPriceXof || 0))),
+        optionsJson: JSON.stringify(cleanOptions), imageUrl: typeof imageUrl === 'string' ? imageUrl : null });
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
+        actorRole: auth.role, restaurantId: rid, action: 'MENU_ITEM_CREATED',
+        targetType: 'MENU_ITEM', targetId: id, details: `${name.trim()} (${roundedPrice} FCFA)` });
+      return id;
+    }
     const cat = restaurantRepository.findCategory(categoryId, rid);
     if (!cat) {
       throw new AppError(404, 'Catégorie introuvable.');
@@ -231,6 +293,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       priceXof: roundedPrice,
       costPriceXof: Math.max(0, Math.round(Number(costPriceXof || 0))),
       optionsJson: JSON.stringify(cleanOptions),
+      imageUrl: typeof imageUrl === 'string' ? imageUrl : null,
     });
 
     recordAudit(getDb(), {
@@ -247,13 +310,29 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return id;
   }
 
-  updateMenuItem(rid: string, itemId: string, body: Record<string, unknown>) {
+  async updateMenuItem(rid: string, itemId: string, body: Record<string, unknown>) {
+    if (body.imageUrl !== undefined && body.imageUrl !== null && !isRestaurantImageUrl(rid, 'menu', body.imageUrl)) {
+      throw new AppError(400, 'URL de photo d’article invalide.');
+    }
+    if (isPostgresMode()) {
+      if (!await postgresRestaurantRepository.findMenuItemById(itemId, rid)) throw new AppError(404, 'Article introuvable.');
+      const { available, priceXof, name, description, imageUrl } = body || {};
+      await postgresRestaurantRepository.updateMenuItem(itemId, rid, {
+        available: typeof available === 'boolean' ? available : undefined,
+        priceXof: Number.isFinite(Number(priceXof)) && Number(priceXof) >= 0 ? Math.round(Number(priceXof)) : undefined,
+        name: typeof name === 'string' && name.trim().length >= 2 ? name.trim() : undefined,
+        description: typeof description === 'string' ? description.trim() : undefined,
+        imageUrl: typeof imageUrl === 'string' ? imageUrl : undefined,
+      });
+      broadcastRestaurantEvent(rid, 'menu:updated', { itemId });
+      return;
+    }
     const existing = restaurantRepository.findMenuItemById(itemId, rid);
     if (!existing) {
       throw new AppError(404, 'Article introuvable.');
     }
 
-    const { available, priceXof, name, description } = body || {};
+    const { available, priceXof, name, description, imageUrl } = body || {};
     restaurantRepository.updateMenuItem(itemId, rid, {
       available: typeof available === 'boolean' ? available : undefined,
       priceXof:
@@ -266,16 +345,19 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
           : undefined,
       description:
         typeof description === 'string' ? description.trim() : undefined,
+      imageUrl: typeof imageUrl === 'string' ? imageUrl : undefined,
     });
 
     broadcastRestaurantEvent(rid, 'menu:updated', { itemId });
   }
 
-  getOrders(rid: string) {
+  async getOrders(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findOrdersWithItems(rid);
     return restaurantRepository.findOrdersWithItems(rid);
   }
 
   async createPosOrder(auth: AuthContext, body: Record<string, unknown>) {
+    if (isPostgresMode()) return this.createPosOrderPostgres(auth, body);
     const rid = auth.restaurantId!;
     const {
       orderType,
@@ -423,6 +505,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         lines,
       });
 
+      recordAudit(db, {
+        actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role,
+        restaurantId: rid, action: discount > 0 ? 'ORDER_CREATED_WITH_DISCOUNT' : 'ORDER_CREATED',
+        targetType: 'ORDER', targetId: orderId,
+        details: `${orderNumber} · ${totalXof} FCFA · remise ${discount} FCFA`,
+      });
+
       deductionResult = restaurantRepository.deductStocksForOrderItems({
         rid,
         orderNumber,
@@ -483,7 +572,34 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  updateOrderStatus(auth: AuthContext, orderId: string, status: unknown) {
+  async updateOrderItemPrepStatus(auth: AuthContext, orderId: string, itemId: string, prepStatus: unknown) {
+    const rid = auth.restaurantId!;
+    const valid = ['PENDING', 'PREPARING', 'READY', 'SERVED'];
+    if (!valid.includes(String(prepStatus))) throw new AppError(400, 'Statut de préparation invalide.');
+    if (!auth.permissions.includes('kitchen:write') && !auth.permissions.includes('orders:write')) {
+      throw new AppError(403, 'Permission insuffisante.');
+    }
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateOrderItemPrepStatus(orderId, itemId, rid, String(prepStatus));
+    } else {
+      restaurantRepository.updateOrderItemPrepStatus(orderId, itemId, rid, String(prepStatus));
+    }
+    broadcastRestaurantEvent(rid, 'order:updated', { orderId, itemId, prepStatus });
+    broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, itemId, prepStatus });
+  }
+
+  async updateOrderStatus(auth: AuthContext, orderId: string, status: unknown) {
+    if (isPostgresMode()) {
+      const rid = auth.restaurantId!;
+      const valid = ['PENDING', 'IN_PREPARATION', 'READY', 'SERVED', 'CANCELLED'];
+      if (!valid.includes(String(status))) throw new AppError(400, 'Statut de commande invalide.');
+      const allowed = auth.permissions.includes('kitchen:write') || auth.permissions.includes('orders:write') || auth.permissions.includes('pos:pay');
+      if (!allowed) throw new AppError(403, 'Permission insuffisante.');
+      await postgresRestaurantRepository.updateOrderStatusTransaction({ orderId, rid, status: String(status), userId: auth.userId, actorEmail: auth.email, actorRole: auth.role });
+      broadcastRestaurantEvent(rid, 'order:updated', { orderId, status });
+      broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
+      return;
+    }
     const rid = auth.restaurantId!;
     const valid = [
       'PENDING',
@@ -508,6 +624,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     if (!order) {
       throw new AppError(404, 'Commande introuvable.');
     }
+    if (order.status === 'PAID') throw new AppError(409, 'Cette commande est déjà encaissée et clôturée.');
+    if (order.status === 'CANCELLED') throw new AppError(409, 'Cette commande est annulée et ne peut plus être modifiée.');
 
     restaurantRepository.updateOrderAndPrepStatus(
       orderId,
@@ -515,20 +633,26 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       String(status),
       order.table_id,
     );
+    recordAudit(getDb(), { actorUserId: auth.userId, actorEmail: auth.email,
+      actorRole: auth.role, restaurantId: rid,
+      action: status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATUS_CHANGED',
+      targetType: 'ORDER', targetId: orderId, details: `${orderId} · ${order.status} → ${String(status)}` });
 
     broadcastRestaurantEvent(rid, 'order:updated', { orderId, status });
     broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
   }
 
-  getPayments(rid: string) {
+  async getPayments(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findPayments(rid);
     return restaurantRepository.findPayments(rid);
   }
 
-  payOrder(
+  async payOrder(
     auth: AuthContext,
     orderId: string,
     body: Record<string, unknown>,
   ) {
+    if (isPostgresMode()) return this.payOrderPostgres(auth, orderId, body);
     const rid = auth.restaurantId!;
     const { amountXof, method, idempotencyKey } = body || {};
 
@@ -640,7 +764,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     }
   }
 
-  refundPayment(auth: AuthContext, paymentId: string) {
+  async refundPayment(auth: AuthContext, paymentId: string) {
+    if (isPostgresMode()) return this.refundPaymentPostgres(auth, paymentId);
     const rid = auth.restaurantId!;
     const db = getDb();
     try {
@@ -681,14 +806,22 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     }
   }
 
-  getTables(rid: string) {
+  async getTables(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findTablesWithQrAndActiveOrder(rid);
     return restaurantRepository.findTablesWithQrAndActiveOrder(rid);
   }
 
-  createTable(rid: string, body: Record<string, unknown>) {
+  async createTable(rid: string, body: Record<string, unknown>) {
     const { zone, label, capacity } = body || {};
     if (typeof label !== 'string' || label.trim().length < 1) {
       throw new AppError(400, 'Nom de table requis.');
+    }
+    if (isPostgresMode()) {
+      const { tableId, qrToken } = await postgresRestaurantRepository.createTableWithQr(
+        rid, String(zone || 'Salle principale').trim(), label.trim(),
+        Math.max(1, Math.min(24, Number(capacity) || 4)),
+      );
+      return { id: tableId, qrToken };
     }
     const { tableId, qrToken } = restaurantRepository.createTableWithQr(
       rid,
@@ -699,16 +832,30 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { id: tableId, qrToken };
   }
 
-  updateTableStatus(rid: string, tableId: string, status: unknown) {
+  async updateTableStatus(rid: string, tableId: string, status: unknown) {
     if (!['AVAILABLE', 'OCCUPIED', 'RESERVED'].includes(String(status))) {
       throw new AppError(400, 'Statut de table invalide.');
+    }
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateTableStatus(tableId, rid, String(status));
+      broadcastRestaurantEvent(rid, 'table:updated', { tableId, status });
+      return;
     }
     restaurantRepository.updateTableStatus(tableId, rid, String(status));
     broadcastRestaurantEvent(rid, 'table:updated', { tableId, status });
   }
 
-  regenerateTableQr(auth: AuthContext, tableId: string) {
+  async regenerateTableQr(auth: AuthContext, tableId: string) {
     const rid = auth.restaurantId!;
+    if (isPostgresMode()) {
+      const tbl = await postgresRestaurantRepository.findTableById(tableId, rid);
+      if (!tbl) throw new AppError(404, 'Table introuvable.');
+      const result = await postgresRestaurantRepository.regenerateTableQr(tableId, rid);
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email,
+        actorRole: auth.role, restaurantId: rid, action: 'QR_REGENERATED',
+        targetType: 'TABLE', targetId: tableId, details: `${tbl.label} -> version ${result.version}` });
+      return result;
+    }
     const tbl = restaurantRepository.findTableById(tableId, rid);
     if (!tbl) {
       throw new AppError(404, 'Table introuvable.');
@@ -727,14 +874,15 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return result;
   }
 
-  getStocks(rid: string) {
+  async getStocks(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findStocksAndMovements(rid);
     return restaurantRepository.findStocksAndMovements(rid);
   }
 
-  private resolveStockAlertRecipients(
+  private async resolveStockAlertRecipients(
     rid: string,
     customEmailsCsv: string,
-  ): string[] {
+  ): Promise<string[]> {
     const parsed = customEmailsCsv
       .split(/[,;\s]+/)
       .map((e) => e.trim().toLowerCase())
@@ -742,7 +890,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     if (parsed.length > 0) {
       return Array.from(new Set(parsed));
     }
-    return restaurantRepository.findManagerEmailsForRestaurant(rid);
+    return isPostgresMode() ? postgresRestaurantRepository.findManagerEmailsForRestaurant(rid) : restaurantRepository.findManagerEmailsForRestaurant(rid);
   }
 
   async dispatchCriticalStockAlert(params: {
@@ -756,15 +904,16 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     supplierName: string;
   }) {
     const rid = params.restaurantId || params.auth?.restaurantId;
+    if (isPostgresMode()) return this.dispatchCriticalStockAlertPostgres({ ...params, restaurantId: rid });
     if (!rid) {
       throw new AppError(400, 'Identifiant restaurant requis.');
     }
-    const settings = restaurantRepository.findStockAlertSettings(rid);
-    const recipients = this.resolveStockAlertRecipients(
+    const settings = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
+    const recipients = await this.resolveStockAlertRecipients(
       rid,
       settings.recipientEmails,
     );
-    const restaurantName = restaurantRepository.findRestaurantNameById(rid);
+    const restaurantName = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantNameById(rid) : restaurantRepository.findRestaurantNameById(rid);
 
     let emailResult: {
       dispatched: boolean;
@@ -843,6 +992,48 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
+  private async dispatchCriticalStockAlertPostgres(params: {
+    restaurantId?: string; auth?: AuthContext; stockId: string; stockName: string;
+    quantity: number; minThreshold: number; unit: string; supplierName: string;
+  }) {
+    const rid = params.restaurantId || params.auth?.restaurantId;
+    if (!rid) throw new AppError(400, 'Identifiant restaurant requis.');
+    const settings = await postgresRestaurantRepository.findStockAlertSettings(rid);
+    const recipients = await this.resolveStockAlertRecipients(rid, settings.recipientEmails);
+    const restaurantName = await postgresRestaurantRepository.findRestaurantNameById(rid);
+    let emailResult: { dispatched: boolean; status: 'SENT' | 'QUEUED_NO_SMTP' | 'SKIPPED' | 'FAILED'; recipients: string[] } =
+      { dispatched: false, status: 'SKIPPED', recipients };
+    if (settings.emailEnabled && recipients.length > 0) {
+      emailResult = await sendCriticalStockAlertEmail({
+        restaurantName, stockName: params.stockName, quantity: params.quantity,
+        minThreshold: params.minThreshold, unit: params.unit, supplierName: params.supplierName,
+        recipients, smtpConfig: settings.smtpHost ? { host: settings.smtpHost,
+          port: settings.smtpPort, secure: settings.smtpSecure, user: settings.smtpUser,
+          pass: settings.smtpPass, from: settings.smtpFrom } : undefined,
+      });
+    }
+    const title = `Stock critique : ${params.stockName}`;
+    const message = `${params.stockName} est à ${params.quantity} ${params.unit} (seuil minimal : ${params.minThreshold} ${params.unit}).`;
+    const notification = settings.inAppEnabled ? await postgresRestaurantRepository.createNotification({
+      rid, type: 'STOCK_CRITICAL', title, message, stockId: params.stockId,
+      emailDispatched: emailResult.dispatched, emailRecipients: emailResult.recipients.join(', '),
+      emailStatus: emailResult.status,
+    }) : null;
+    await postgresRestaurantRepository.recordAudit({
+      actorUserId: params.auth?.userId ?? null,
+      actorEmail: params.auth?.email ?? 'system@restomax.ci',
+      actorRole: params.auth?.role ?? 'SYSTEM', restaurantId: rid,
+      action: 'STOCK_CRITICAL_ALERT', targetType: 'STOCK', targetId: params.stockId,
+      details: `${params.stockName}: ${params.quantity}/${params.minThreshold} ${params.unit} (email=${emailResult.status})`,
+    });
+    broadcastRestaurantEvent(rid, 'stock:alert', {
+      stockId: params.stockId, name: params.stockName, quantity: params.quantity,
+      minThreshold: params.minThreshold, unit: params.unit,
+      notificationId: notification?.id || null, emailStatus: emailResult.status,
+    });
+    return { notification, emailStatus: emailResult.status, recipients: emailResult.recipients };
+  }
+
   async createStockItem(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const { name, unit, quantity, minThreshold, unitCostXof, supplierName } =
@@ -856,7 +1047,11 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     const cleanThreshold = Math.max(0, Number(minThreshold ?? 5));
     const cleanSupplier = String(supplierName || '').trim();
 
-    const id = restaurantRepository.createStockItem({
+    const id = isPostgresMode()
+      ? await postgresRestaurantRepository.createStockItem({ rid, name: cleanName, unit: cleanUnit,
+          quantity: cleanQty, minThreshold: cleanThreshold,
+          unitCostXof: Math.round(Number(unitCostXof || 0)), supplierName: cleanSupplier })
+      : restaurantRepository.createStockItem({
       rid,
       name: cleanName,
       unit: cleanUnit,
@@ -897,7 +1092,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       throw new AppError(400, 'Quantité invalide.');
     }
 
-    const stock = restaurantRepository.findStockById(stockId, rid);
+    const stock = isPostgresMode() ? await postgresRestaurantRepository.findStockById(stockId, rid) : restaurantRepository.findStockById(stockId, rid);
     if (!stock) {
       throw new AppError(404, 'Article de stock introuvable.');
     }
@@ -910,7 +1105,11 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
           : -qty;
     const nextQty = Math.max(0, stock.quantity + delta);
 
-    restaurantRepository.applyStockMovement({
+    if (isPostgresMode()) await postgresRestaurantRepository.applyStockMovement({
+      rid, stockId: stock.id, nextQty, movementType: String(movementType), delta,
+      reason: String(reason || '').trim(), userId: auth.userId,
+    });
+    else restaurantRepository.applyStockMovement({
       rid,
       stockId: stock.id,
       nextQty,
@@ -937,14 +1136,14 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { quantity: nextQty, alertTriggered };
   }
 
-  getStockAlertConfig(rid: string) {
+  async getStockAlertConfig(rid: string) {
     this.ensureTenantId(rid);
-    const settings = restaurantRepository.findStockAlertSettings(rid);
-    const resolvedRecipients = this.resolveStockAlertRecipients(
+    const settings = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
+    const resolvedRecipients = await this.resolveStockAlertRecipients(
       rid,
       settings.recipientEmails,
     );
-    const recentAlerts = restaurantRepository.findRecentStockAlerts(rid);
+    const recentAlerts = isPostgresMode() ? await postgresRestaurantRepository.findRecentStockAlerts(rid) : restaurantRepository.findRecentStockAlerts(rid);
     return {
       settings: {
         restaurantId: settings.restaurantId,
@@ -965,7 +1164,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  updateStockAlertConfig(auth: AuthContext, body: Record<string, unknown>) {
+  async updateStockAlertConfig(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const {
       inAppEnabled,
@@ -978,9 +1177,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       smtpPass,
       smtpFrom,
     } = body || {};
-    const current = restaurantRepository.findStockAlertSettings(rid);
+    const current = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
 
-    const updated = restaurantRepository.upsertStockAlertSettings({
+    const updated = isPostgresMode() ? await postgresRestaurantRepository.upsertStockAlertSettings({
       rid,
       inAppEnabled:
         typeof inAppEnabled === 'boolean' ? inAppEnabled : current.inAppEnabled,
@@ -1002,9 +1201,20 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       smtpPass: typeof smtpPass === 'string' ? smtpPass : undefined,
       smtpFrom:
         typeof smtpFrom === 'string' ? smtpFrom.trim() : current.smtpFrom,
+    }) : restaurantRepository.upsertStockAlertSettings({
+      rid, inAppEnabled: typeof inAppEnabled === 'boolean' ? inAppEnabled : current.inAppEnabled,
+      emailEnabled: typeof emailEnabled === 'boolean' ? emailEnabled : current.emailEnabled,
+      recipientEmails: typeof recipientEmails === 'string' ? recipientEmails.trim() : current.recipientEmails,
+      smtpHost: typeof smtpHost === 'string' ? smtpHost.trim() : current.smtpHost,
+      smtpPort: Number.isFinite(Number(smtpPort)) ? Math.max(1, Math.min(65535, Number(smtpPort))) : current.smtpPort,
+      smtpSecure: typeof smtpSecure === 'boolean' ? smtpSecure : current.smtpSecure,
+      smtpUser: typeof smtpUser === 'string' ? smtpUser.trim() : current.smtpUser,
+      smtpPass: typeof smtpPass === 'string' ? smtpPass : undefined,
+      smtpFrom: typeof smtpFrom === 'string' ? smtpFrom.trim() : current.smtpFrom,
     });
 
-    recordAudit(getDb(), {
+    if (isPostgresMode()) await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'STOCK_ALERT_CONFIG_UPDATED', targetType: 'RESTAURANT', targetId: rid, details: `inApp=${updated.inAppEnabled} email=${updated.emailEnabled} smtp=${updated.smtpHost || 'ENV'}` });
+    else recordAudit(getDb(), {
       actorUserId: auth.userId,
       actorEmail: auth.email,
       actorRole: auth.role,
@@ -1020,7 +1230,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       inAppEnabled: updated.inAppEnabled,
       emailEnabled: updated.emailEnabled,
       recipientEmails: updated.recipientEmails,
-      resolvedRecipients: this.resolveStockAlertRecipients(
+      resolvedRecipients: await this.resolveStockAlertRecipients(
         rid,
         updated.recipientEmails,
       ),
@@ -1037,12 +1247,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async testStockAlertEmail(auth: AuthContext) {
     const rid = auth.restaurantId!;
-    const settings = restaurantRepository.findStockAlertSettings(rid);
-    const recipients = this.resolveStockAlertRecipients(
-      rid,
-      settings.recipientEmails,
-    );
-    const restaurantName = restaurantRepository.findRestaurantNameById(rid);
+    const settings = isPostgresMode() ? await postgresRestaurantRepository.findStockAlertSettings(rid) : restaurantRepository.findStockAlertSettings(rid);
+    const recipients = await this.resolveStockAlertRecipients(rid, settings.recipientEmails);
+    const restaurantName = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantNameById(rid) : restaurantRepository.findRestaurantNameById(rid);
     const res = await sendSmtpTestEmail({
       restaurantName,
       recipients,
@@ -1062,7 +1269,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async triggerManualStockAlert(auth: AuthContext, stockId: string) {
     const rid = auth.restaurantId!;
-    const stock = restaurantRepository.findStockById(stockId, rid);
+    const stock = isPostgresMode() ? await postgresRestaurantRepository.findStockById(stockId, rid) : restaurantRepository.findStockById(stockId, rid);
     if (!stock) {
       throw new AppError(404, 'Article de stock introuvable.');
     }
@@ -1077,25 +1284,25 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getNotifications(rid: string) {
+  async getNotifications(rid: string) {
     this.ensureTenantId(rid);
-    const notifications =
-      restaurantRepository.findNotificationsForRestaurant(rid);
+    const notifications = isPostgresMode() ? await postgresRestaurantRepository.findNotificationsForRestaurant(rid) : restaurantRepository.findNotificationsForRestaurant(rid);
     const unreadCount = notifications.filter((n) => !n.isRead).length;
     return { notifications, unreadCount };
   }
 
-  markNotificationsRead(rid: string, body: Record<string, unknown>) {
+  async markNotificationsRead(rid: string, body: Record<string, unknown>) {
     this.ensureTenantId(rid);
     const id = typeof body?.id === 'string' ? body.id : undefined;
-    restaurantRepository.markNotificationsRead(rid, id);
+    if (isPostgresMode()) await postgresRestaurantRepository.markNotificationsRead(rid, id);
+    else restaurantRepository.markNotificationsRead(rid, id);
     broadcastRestaurantEvent(rid, 'notifications:updated', {
       id: id || null,
     });
   }
 
-  getStaff(rid: string) {
-    const rows = restaurantRepository.findStaffMembers(rid);
+  async getStaff(rid: string) {
+    const rows = isPostgresMode() ? await postgresRestaurantRepository.findStaffMembers(rid) : restaurantRepository.findStaffMembers(rid);
     const staff = rows.map((r) => ({
       ...r,
       customPermissions: JSON.parse(String(r.custom_permissions_json || '[]')),
@@ -1103,7 +1310,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { staff, roleCeilings: ROLE_PERMISSION_CEILING };
   }
 
-  createStaff(auth: AuthContext, body: Record<string, unknown>) {
+  async createStaff(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
     const { fullName, email, phone, role, password, customPermissions } =
       body || {};
@@ -1124,7 +1331,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     }
 
     const cleanEmail = email.trim().toLowerCase();
-    const existing = restaurantRepository.findUserByEmail(cleanEmail);
+    const existing = isPostgresMode() ? await postgresRestaurantRepository.findUserByEmail(cleanEmail) : restaurantRepository.findUserByEmail(cleanEmail);
     if (existing) {
       throw new AppError(
         409,
@@ -1141,7 +1348,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       ? customPermissions.filter((p) => ceiling.includes(p))
       : [];
 
-    const { memberId, userId } = restaurantRepository.createStaffUserAndMember({
+    const created = isPostgresMode()
+      ? await postgresRestaurantRepository.createStaffUserAndMember({
+          rid, email: cleanEmail, passwordHash: await bcrypt.hash(pwd, 10),
+          fullName: fullName.trim(), phone: String(phone || '').trim() || null,
+          role: role as Role, customPermissions: safeCustom,
+        })
+      : restaurantRepository.createStaffUserAndMember({
       rid,
       email: cleanEmail,
       passwordHash: bcrypt.hashSync(pwd, 10),
@@ -1151,7 +1364,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       customPermissions: safeCustom,
     });
 
-    recordAudit(getDb(), {
+    const { memberId, userId } = created;
+    if (isPostgresMode()) await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'STAFF_CREATED', targetType: 'USER', targetId: userId, details: `${fullName.trim()} (${role})` });
+    else recordAudit(getDb(), {
       actorUserId: auth.userId,
       actorEmail: auth.email,
       actorRole: auth.role,
@@ -1165,13 +1380,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return { id: memberId, userId };
   }
 
-  updateStaff(
+  async updateStaff(
     auth: AuthContext,
     memberId: string,
     body: Record<string, unknown>,
   ) {
     const rid = auth.restaurantId!;
-    const member = restaurantRepository.findMemberById(memberId, rid);
+    const member = isPostgresMode() ? await postgresRestaurantRepository.findMemberById(memberId, rid) : restaurantRepository.findMemberById(memberId, rid);
     if (!member) {
       throw new AppError(404, 'Membre introuvable.');
     }
@@ -1200,11 +1415,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       boundedPerms = customPermissions.filter((p) => ceiling.includes(p));
     }
 
-    restaurantRepository.updateStaffMember(member.id, rid, member.user_id, {
+    const updates = {
       status: validStatus,
       role: validRole,
       customPermissions: boundedPerms,
-    });
+    };
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateStaffMember(member.id, rid, member.user_id, updates);
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'STAFF_UPDATED', targetType: 'MEMBER', targetId: member.id, details: `status=${status || 'unchanged'} role=${role || 'unchanged'}` });
+      return;
+    }
+    restaurantRepository.updateStaffMember(member.id, rid, member.user_id, updates);
 
     recordAudit(getDb(), {
       actorUserId: auth.userId,
@@ -1218,15 +1439,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getCustomers(rid: string) {
+  async getCustomers(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findCustomers(rid);
     return restaurantRepository.findCustomers(rid);
   }
 
-  createCustomer(rid: string, body: Record<string, unknown>) {
+  async createCustomer(rid: string, body: Record<string, unknown>) {
     const { fullName, phone, email, preferences } = body || {};
     if (typeof fullName !== 'string' || typeof phone !== 'string') {
       throw new AppError(400, 'Nom et téléphone requis.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createCustomer({ rid, fullName: fullName.trim(), phone: phone.trim(), email: String(email || '').trim(), preferences: String(preferences || '').trim() });
     return restaurantRepository.createCustomer({
       rid,
       fullName: fullName.trim(),
@@ -1236,11 +1459,12 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  getReservations(rid: string) {
+  async getReservations(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findReservations(rid);
     return restaurantRepository.findReservations(rid);
   }
 
-  createReservation(rid: string, body: Record<string, unknown>) {
+  async createReservation(rid: string, body: Record<string, unknown>) {
     const { customerName, customerPhone, partySize, reservedAt, tableId, notes } =
       body || {};
     if (
@@ -1250,6 +1474,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     ) {
       throw new AppError(400, 'Champs de réservation incomplets.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createReservation({ rid, customerName: customerName.trim(), customerPhone: customerPhone.trim(), partySize: Math.max(1, Number(partySize || 2)), reservedAt, tableId: tableId ? String(tableId) : null, notes: String(notes || '').trim() });
     return restaurantRepository.createReservation({
       rid,
       customerName: customerName.trim(),
@@ -1261,16 +1486,17 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     });
   }
 
-  updateReservationStatus(rid: string, id: string, status: unknown) {
+  async updateReservationStatus(rid: string, id: string, status: unknown) {
     if (
       !['PENDING', 'CONFIRMED', 'SEATED', 'CANCELLED'].includes(String(status))
     ) {
       throw new AppError(400, 'Statut invalide.');
     }
-    restaurantRepository.updateReservationStatus(id, rid, String(status));
+    if (isPostgresMode()) await postgresRestaurantRepository.updateReservationStatus(id, rid, String(status));
+    else restaurantRepository.updateReservationStatus(id, rid, String(status));
   }
 
-  getFinanceSummary(rid: string) {
+  async getFinanceSummary(rid: string) {
     const {
       sales,
       todayDate,
@@ -1279,10 +1505,9 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       cogsRow,
       expenses,
       byMethod,
-    } = restaurantRepository.findFinanceSummary(rid);
-    const totalExpenses = expenses.reduce(
-      (acc, e) => acc + Number(e.amountXof || 0),
-      0,
+    } = isPostgresMode() ? await postgresRestaurantRepository.findFinanceSummary(rid) : restaurantRepository.findFinanceSummary(rid);
+    const totalExpenses = (expenses as Array<Record<string, unknown>>).reduce<number>(
+      (acc, e) => acc + Number(e.amountXof || 0), 0,
     );
     return {
       summary: {
@@ -1306,27 +1531,55 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  createExpense(rid: string, body: Record<string, unknown>) {
+  async createExpense(auth: AuthContext, body: Record<string, unknown>) {
+    const rid = auth.restaurantId!;
     const { category, description, amountXof, expenseDate } = body || {};
-    if (
-      typeof category !== 'string' ||
-      typeof description !== 'string' ||
-      !Number.isFinite(Number(amountXof)) ||
-      Number(amountXof) <= 0
-    ) {
-      throw new AppError(400, 'Dépense invalide.');
-    }
-    return restaurantRepository.createExpense({
-      rid,
-      category: category.trim(),
-      description: description.trim(),
-      amountXof: Math.round(Number(amountXof)),
-      expenseDate: expenseDate ? String(expenseDate) : undefined,
+    if (typeof category !== 'string' || category.trim().length < 2 ||
+        typeof description !== 'string' || !Number.isFinite(Number(amountXof)) ||
+        Number(amountXof) <= 0) throw new AppError(400, 'Dépense invalide.');
+    const params = { rid, category: category.trim(), description: description.trim(),
+      amountXof: Math.round(Number(amountXof)), expenseDate: expenseDate ? String(expenseDate) : undefined };
+    if (isPostgresMode()) return postgresRestaurantRepository.createExpense({
+      ...params, actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role,
     });
+    const id = restaurantRepository.createExpense(params);
+    recordAudit(getDb(), { actorUserId: auth.userId, actorEmail: auth.email,
+      actorRole: auth.role, restaurantId: rid, action: 'EXPENSE_CREATED',
+      targetType: 'EXPENSE', targetId: id,
+      details: `${params.amountXof} FCFA · ${params.category} · ${params.description}` });
+    return id;
   }
 
-  exportOrdersCsv(rid: string): string {
-    const rows = restaurantRepository.findOrdersForCsvExport(rid);
+  async getOwnerReport(rid: string, fromInput: string, toInput: string) {
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
+    if (!validDate(fromInput) || !validDate(toInput) || fromInput > toInput)
+      throw new AppError(400, 'Période de rapport invalide.');
+    const fromDate = new Date(`${fromInput}T00:00:00.000Z`);
+    const toDate = new Date(`${toInput}T00:00:00.000Z`);
+    if ((toDate.getTime() - fromDate.getTime()) / 86400000 > 366)
+      throw new AppError(400, 'La période ne peut pas dépasser 367 jours.');
+    const toExclusive = new Date(toDate.getTime() + 86400000).toISOString().slice(0,10);
+    return isPostgresMode()
+      ? postgresRestaurantRepository.findOwnerReport(rid, fromInput, toExclusive)
+      : restaurantRepository.findOwnerReport(rid, fromInput, toExclusive);
+  }
+
+  async getOwnerAuditLogs(rid: string, fromInput: string, toInput: string, limitInput?: unknown) {
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
+    if (!validDate(fromInput) || !validDate(toInput) || fromInput > toInput)
+      throw new AppError(400, 'Période du journal invalide.');
+    const toDate = new Date(`${toInput}T00:00:00.000Z`);
+    const toExclusive = new Date(toDate.getTime() + 86400000).toISOString().slice(0,10);
+    const limit = Math.max(1, Math.min(500, Number(limitInput) || 300));
+    return isPostgresMode()
+      ? postgresRestaurantRepository.findOwnerAuditLogs(rid, fromInput, toExclusive, limit)
+      : restaurantRepository.findOwnerAuditLogs(rid, fromInput, toExclusive, limit);
+  }
+
+  async exportOrdersCsv(rid: string): Promise<string> {
+    const rows = isPostgresMode() ? await postgresRestaurantRepository.findOrdersForCsvExport(rid) : restaurantRepository.findOrdersForCsvExport(rid);
     const header = 'Numero,Type,Client,Statut,Total_FCFA,Paye_FCFA,Date';
     const lines = rows.map(
       (r) =>
@@ -1335,8 +1588,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     return [header, ...lines].join('\n');
   }
 
-  getSettings(rid: string) {
-    const { resto, sub } = restaurantRepository.findRestaurantSettings(rid);
+  async getSettings(rid: string) {
+    const { resto, sub } = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantSettings(rid) : restaurantRepository.findRestaurantSettings(rid);
     return {
       restaurant: {
         id: resto.id,
@@ -1345,6 +1598,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         email: resto.email,
         phone: resto.phone,
         address: resto.address,
+        logoUrl: resto.logoUrl || null,
         city: resto.city,
         country: resto.country,
         currency: resto.currency,
@@ -1366,8 +1620,11 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  updateSettings(auth: AuthContext, body: Record<string, unknown>) {
+  async updateSettings(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
+    if (body.logoUrl !== undefined && body.logoUrl !== null && !isRestaurantImageUrl(rid, 'logo', body.logoUrl)) {
+      throw new AppError(400, 'URL du logo invalide.');
+    }
     const {
       name,
       phone,
@@ -1380,6 +1637,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       paydunyaPrivateKey,
       paydunyaToken,
       printerSettings,
+      logoUrl,
     } = body || {};
 
     let printerSettingsJson: string | undefined;
@@ -1387,7 +1645,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       printerSettingsJson = JSON.stringify(parsePrinterSettings(JSON.stringify(printerSettings)));
     }
 
-    restaurantRepository.updateRestaurantSettings(rid, {
+    const settingsUpdate = {
       name: name ? String(name).trim() : null,
       phone: phone !== undefined ? String(phone).trim() : null,
       address: address !== undefined ? String(address).trim() : null,
@@ -1406,7 +1664,14 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         : undefined,
       paydunyaToken: paydunyaToken ? String(paydunyaToken) : undefined,
       printerSettingsJson,
-    });
+      logoUrl: typeof logoUrl === 'string' ? logoUrl : undefined,
+    };
+    if (isPostgresMode()) {
+      await postgresRestaurantRepository.updateRestaurantSettings(rid, settingsUpdate);
+      await postgresRestaurantRepository.recordAudit({ actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role, restaurantId: rid, action: 'SETTINGS_UPDATED', targetType: 'RESTAURANT', targetId: rid });
+      return;
+    }
+    restaurantRepository.updateRestaurantSettings(rid, settingsUpdate);
 
     recordAudit(getDb(), {
       actorUserId: auth.userId,
@@ -1421,7 +1686,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
 
   async printEscposTicket(auth: AuthContext, body: Record<string, unknown>) {
     const rid = auth.restaurantId!;
-    const { resto } = restaurantRepository.findRestaurantSettings(rid);
+    const { resto } = isPostgresMode() ? await postgresRestaurantRepository.findRestaurantSettings(rid) : restaurantRepository.findRestaurantSettings(rid);
     const printer = parsePrinterSettings(resto.printerSettingsJson);
     const kind = body?.kind === 'KITCHEN' ? 'KITCHEN' : 'RECEIPT';
 
@@ -1477,6 +1742,33 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
                 ],
           });
 
+    let printBytes = formatted.bytes;
+    if (kind === 'RECEIPT' && typeof body?.logoRasterBase64 === 'string') {
+      const raster = body.logoRasterBase64;
+      if (raster.length <= 400_000 && /^[A-Za-z0-9+/]*={0,2}$/.test(raster)) {
+        const rasterBytes = Buffer.from(raster, 'base64');
+        const bytesPerRow = rasterBytes[9] + (rasterBytes[10] << 8);
+        const rasterHeight = rasterBytes[11] + (rasterBytes[12] << 8);
+        const hasRasterHeader =
+          rasterBytes.length > 14 &&
+          rasterBytes[0] === 0x1b && rasterBytes[1] === 0x40 &&
+          rasterBytes[2] === 0x1b && rasterBytes[3] === 0x61 &&
+          rasterBytes[4] === 0x01 && rasterBytes[5] === 0x1d &&
+          rasterBytes[6] === 0x76 && rasterBytes[7] === 0x30 &&
+          rasterBytes[8] === 0x00;
+        const maxBytesPerRow = printer.paperWidth === '58mm' ? 48 : 72;
+        if (
+          hasRasterHeader &&
+          bytesPerRow > 0 && bytesPerRow <= maxBytesPerRow &&
+          rasterHeight > 0 && rasterHeight <= 150 &&
+          rasterBytes.length === 14 + bytesPerRow * rasterHeight &&
+          rasterBytes[rasterBytes.length - 1] === 0x0a
+        ) {
+          printBytes = new Uint8Array(Buffer.concat([rasterBytes, Buffer.from(formatted.bytes)]));
+        }
+      }
+    }
+
     const overrideHost =
       typeof body?.printerHost === 'string' && body.printerHost.trim()
         ? body.printerHost.trim()
@@ -1493,7 +1785,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       networkResult = await sendRawBytesOverTcp(
         overrideHost,
         overridePort,
-        formatted.bytes,
+        printBytes,
       );
     }
 
@@ -1502,20 +1794,28 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       mode,
       paperWidth: printer.paperWidth,
       previewText: formatted.previewText,
-      base64Bytes: Buffer.from(formatted.bytes).toString('base64'),
+      logoUrl: kind === 'RECEIPT' && typeof resto.logoUrl === 'string' ? resto.logoUrl : null,
+      base64Bytes: Buffer.from(printBytes).toString('base64'),
       networkResult,
     };
   }
 
-  getTickets(rid: string) {
+  async getTickets(rid: string) {
+    if (isPostgresMode()) return postgresRestaurantRepository.findTicketsForRestaurant(rid);
     return restaurantRepository.findTicketsForRestaurant(rid);
   }
 
-  createTicket(auth: AuthContext, body: Record<string, unknown>) {
+  async createTicket(auth: AuthContext, body: Record<string, unknown>) {
     const { subject, category, priority, message } = body || {};
     if (typeof subject !== 'string' || typeof message !== 'string') {
       throw new AppError(400, 'Sujet et message requis.');
     }
+    if (isPostgresMode()) return postgresRestaurantRepository.createSupportTicket({
+      rid: auth.restaurantId!, email: auth.email, fullName: auth.fullName,
+      role: auth.role, subject: subject.trim(), category: String(category || 'Général'),
+      priority: ['LOW', 'MEDIUM', 'HIGH', 'URGENT'].includes(String(priority)) ? String(priority) : 'MEDIUM',
+      message: message.trim(),
+    });
     return restaurantRepository.createSupportTicket({
       rid: auth.restaurantId!,
       email: auth.email,
@@ -1528,6 +1828,123 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         : 'MEDIUM',
       message: message.trim(),
     });
+  }
+  private async createPosOrderPostgres(auth: AuthContext, body: Record<string, unknown>) {
+    const rid = auth.restaurantId!;
+    const { orderType, tableId, customerName, discountXof, notes, items, idempotencyKey } = body || {};
+    if (!Array.isArray(items) || items.length === 0) throw new AppError(400, 'La commande doit contenir au moins un article.');
+    if (idempotencyKey) {
+      const existing = await postgresRestaurantRepository.findOrderByIdempotencyKey(rid, String(idempotencyKey));
+      if (existing) return { order: existing, deduplicated: true };
+    }
+    const resto = await postgresRestaurantRepository.findRestaurantTaxAndMode(rid);
+    if (tableId && !await postgresRestaurantRepository.findTableById(String(tableId), rid)) {
+      throw new AppError(404, 'Table introuvable pour cet établissement.');
+    }
+    const now = new Date().toISOString();
+    const orderId = generateId('ord');
+    const orderNumber = `CMD-${1001 + await postgresRestaurantRepository.countOrders(rid)}`;
+    let grossXof = 0;
+    const lines: Array<{ id: string; menuItemId: string; name: string; station: string;
+      unitPriceXof: number; optionsSummary: string; optionsDeltaXof: number;
+      quantity: number; lineTotalXof: number; notes: string }> = [];
+    for (const rawLine of items) {
+      const line = rawLine as { menuItemId?: unknown; quantity?: unknown; optionIds?: unknown; notes?: unknown };
+      const parsedQty = Number(line.quantity ?? 1);
+      if (!Number.isFinite(parsedQty) || parsedQty <= 0) throw new AppError(400, 'Quantité d’article invalide.');
+      const quantity = Math.max(1, Math.min(100, Math.floor(parsedQty)));
+      const item = await postgresRestaurantRepository.findMenuItemWithStation(String(line.menuItemId), rid);
+      if (!item || !item.available) throw new AppError(400, 'Article indisponible dans le catalogue.');
+      const options = JSON.parse(String(item.options_json || '[]')) as Array<{ id: string; label: string; priceDeltaXof: number }>;
+      const requested = Array.isArray(line.optionIds) ? line.optionIds.map(String) : [];
+      const selected = options.filter(option => requested.includes(option.id));
+      const delta = selected.reduce((sum, option) => sum + Number(option.priceDeltaXof || 0), 0);
+      const unit = Number(item.price_xof);
+      const lineTotal = (unit + delta) * quantity;
+      grossXof += lineTotal;
+      lines.push({ id: generateId('oi'), menuItemId: String(item.id), name: String(item.name),
+        station: String(item.station || 'KITCHEN'), unitPriceXof: unit,
+        optionsSummary: selected.map(option => option.label).join(', '),
+        optionsDeltaXof: delta, quantity, lineTotalXof: lineTotal,
+        notes: String(line.notes || '').slice(0, 200) });
+    }
+    const discount = Math.max(0, Math.min(grossXof, Math.round(Number(discountXof || 0))));
+    const totalXof = Math.max(0, grossXof - discount);
+    const taxRate = Number(resto?.tax_rate_percent || 18);
+    const subtotalXof = Math.round(totalXof / (1 + taxRate / 100));
+    const taxXof = totalXof - subtotalXof;
+    let deduction: { deductedCount: number; lowStocksTriggered: Array<{ id: string; name: string;
+      quantity: number; minThreshold: number; unit: string; supplierName: string }> };
+    try {
+      deduction = await postgresRestaurantRepository.createPosOrderTransaction({
+        orderId, rid, orderNumber, orderType: orderType === 'TAKEAWAY' ? 'TAKEAWAY' : 'DINE_IN',
+        tableId: tableId ? String(tableId) : null,
+        customerName: String(customerName || 'Client sur place').slice(0, 80),
+        subtotalXof, discountXof: discount, taxXof, totalXof,
+        notes: String(notes || '').slice(0, 300),
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+        userId: auth.userId, actorEmail: auth.email, actorRole: auth.role, now, lines,
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === '23505' && idempotencyKey) {
+        const existing = await postgresRestaurantRepository.findOrderByIdempotencyKey(rid, String(idempotencyKey));
+        if (existing) return { order: existing, deduplicated: true };
+      }
+      if (error instanceof AppError) throw error;
+      throw new AppError(500, 'Erreur création commande.');
+    }
+    if (deduction.deductedCount > 0) {
+      broadcastRestaurantEvent(rid, 'stock:updated', { orderId, orderNumber, deductedCount: deduction.deductedCount });
+      for (const low of deduction.lowStocksTriggered) {
+        await this.dispatchCriticalStockAlert({ restaurantId: rid, auth,
+          stockId: low.id, stockName: low.name, quantity: low.quantity,
+          minThreshold: low.minThreshold, unit: low.unit, supplierName: low.supplierName });
+      }
+    }
+    broadcastRestaurantEvent(rid, 'order:created', { orderId, orderNumber, totalXof });
+    return { deduplicated: false, order: { id: orderId, orderNumber, totalXof,
+      status: 'PENDING', items: lines } };
+  }
+
+  private async payOrderPostgres(auth: AuthContext, orderId: string, body: Record<string, unknown>) {
+    const rid = auth.restaurantId!;
+    const { amountXof, method, idempotencyKey } = body || {};
+    if (!['CASH', 'ORANGE_MONEY', 'MTN_MOMO', 'WAVE', 'CARD'].includes(String(method))) throw new AppError(400, 'Moyen de paiement invalide.');
+    const amount = Math.round(Number(amountXof || 0));
+    if (!Number.isFinite(amount) || amount <= 0) throw new AppError(400, 'Montant invalide.');
+    const resto = await postgresRestaurantRepository.findRestaurantTaxAndMode(rid);
+    const mode = resto?.paydunya_mode === 'LIVE' ? 'LIVE' : 'TEST';
+    const reference = `${mode}-${String(method).slice(0, 4)}-${Math.floor(100000 + Math.random() * 900000)}`;
+    const now = new Date().toISOString();
+    let result;
+    try {
+      result = await postgresRestaurantRepository.recordPaymentTransaction({
+        rid, orderId, paymentId: generateId('pay'), amountXof: amount,
+        method: String(method), mode, reference,
+        idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
+        userId: auth.userId, actorEmail: auth.email, actorRole: auth.role, now,
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === '23505' && idempotencyKey) {
+        const existing = await postgresRestaurantRepository.findPaymentByIdempotencyKey(rid, String(idempotencyKey));
+        if (existing) return { payment: existing, deduplicated: true };
+      }
+      throw error;
+    }
+    if (result.deduplicated) return { payment: result.payment, deduplicated: true };
+    const payment = result.payment;
+    broadcastRestaurantEvent(rid, 'payment:created', { orderId, paymentId: payment.id, amountXof: amount, fullyPaid: payment.fullyPaid });
+    broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status: payment.orderStatus });
+    return { deduplicated: false, payment };
+  }
+
+  private async refundPaymentPostgres(auth: AuthContext, paymentId: string) {
+    const rid = auth.restaurantId!;
+    await postgresRestaurantRepository.refundPaymentTransaction({
+      paymentId, rid, userId: auth.userId, actorEmail: auth.email, actorRole: auth.role,
+    });
+    broadcastRestaurantEvent(rid, 'payment:refunded', { paymentId });
+    return { ok: true };
   }
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Bell,
   CheckCircle2,
@@ -102,9 +103,17 @@ function getTierMeta(
 export function KitchenKdsPage() {
   const { t } = useTranslation();
   const { notify } = useToast();
+  const location = useLocation();
+  const fixedStation: KdsStationFilter =
+    location.pathname === '/app/bar' ? 'BAR' :
+    location.pathname === '/app/kitchen' ? 'KITCHEN' : 'ALL';
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stationFilter, setStationFilter] = useState<KdsStationFilter>('ALL');
+  const [stationFilter, setStationFilter] = useState<KdsStationFilter>(fixedStation);
+
+  useEffect(() => {
+    setStationFilter(fixedStation);
+  }, [fixedStation]);
   const [statusFilter, setStatusFilter] = useState<KdsStatusFilter>('ALL');
   const [groupMode, setGroupMode] = useState<KdsGroupMode>('TIME');
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
@@ -113,8 +122,9 @@ export function KitchenKdsPage() {
     apiFetch<{ orders: Order[] }>('/api/restaurant/orders')
       .then((res) => {
         setOrders(
-          res.orders.filter((o) =>
-            ['PENDING', 'IN_PREPARATION', 'READY'].includes(o.status),
+          res.orders.filter((order) =>
+            order.status !== 'CANCELLED' &&
+            order.items.some((item) => item.prepStatus !== 'SERVED'),
           ),
         );
         setNowMs(Date.now());
@@ -147,6 +157,28 @@ export function KitchenKdsPage() {
       );
     }
   };
+
+  const updateItemPrepStatus = async (orderId: string, itemId: string, prepStatus: string, refresh = true) => {
+    try {
+      await apiFetch(`/api/restaurant/orders/${orderId}/items/${itemId}/prep-status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ prepStatus }),
+      });
+      if (refresh) load();
+    } catch (err) {
+      notify(err instanceof Error ? err.message : t('kitchen.updateError'), 'error');
+    }
+  };
+
+  const updateVisibleItemsPrepStatus = async (orderId: string, visibleItems: OrderItem[], prepStatus: string) => {
+    await Promise.all(visibleItems.map((item) => updateItemPrepStatus(orderId, item.id, prepStatus, false)));
+    load();
+  };
+
+  const getNextItemPrepStatus = (status: OrderItem['prepStatus']) =>
+    status === 'PENDING' ? 'PREPARING' :
+    status === 'PREPARING' ? 'READY' :
+    status === 'READY' ? 'SERVED' : 'PENDING';
 
   const updateBatchStatus = async (orderIds: string[], status: string) => {
     if (orderIds.length === 0) return;
@@ -262,39 +294,15 @@ export function KitchenKdsPage() {
       >
         <Printer className="w-3.5 h-3.5" />
       </button>
-      {ord.status === 'PENDING' && (
-        <button
-          type="button"
-          onClick={() => void updateStatus(ord.id, 'IN_PREPARATION')}
-          className="flex-1 py-2 px-3 rounded-lg bg-[#FF8738] hover:bg-[#F07322] text-white text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors"
-        >
-          {t('kitchen.startPrep')}
-        </button>
-      )}
-      {ord.status === 'IN_PREPARATION' && (
-        <button
-          type="button"
-          onClick={() => void updateStatus(ord.id, 'READY')}
-          className="flex-1 py-2 px-3 rounded-lg bg-[#14B8A6] hover:opacity-90 text-white text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors"
-        >
-          {t('kitchen.markReady')}
-        </button>
-      )}
-      {ord.status === 'READY' && (
-        <button
-          type="button"
-          onClick={() => void updateStatus(ord.id, 'SERVED')}
-          className="flex-1 py-2 px-3 rounded-lg bg-[#182333] hover:bg-[#223044] dark:bg-[#223044] dark:hover:bg-[#2D4059] text-white text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors"
-        >
-          {t('kitchen.servedBtn')}
-        </button>
-      )}
+      <span className="text-[11px] text-[var(--rm-ink-muted)]">
+        Avancement géré article par article
+      </span>
     </div>
   );
 
   return (
     <RestaurantLayout
-      title={t('kitchen.title')}
+      title={fixedStation === 'BAR' ? 'Poste Bar' : fixedStation === 'KITCHEN' ? 'Poste Cuisine' : t('kitchen.title')}
       onRealtimeEvent={load}
       actions={
         <div className="flex flex-wrap items-center gap-2">
@@ -324,7 +332,8 @@ export function KitchenKdsPage() {
             ))}
           </div>
 
-          {/* Station filter */}
+          {/* Station filter: only shown on the combined overview */}
+          {fixedStation === 'ALL' && (
           <div className="inline-flex p-1 rounded-lg bg-[var(--rm-surface-muted)] border border-[var(--rm-border)]">
             {(['ALL', 'KITCHEN', 'BAR'] as const).map((st) => (
               <button
@@ -345,6 +354,7 @@ export function KitchenKdsPage() {
               </button>
             ))}
           </div>
+          )}
         </div>
       }
     >
@@ -566,6 +576,13 @@ export function KitchenKdsPage() {
                                         ? t('common.bar')
                                         : t('common.kitchen')}
                                     </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
+                                      className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
+                                    >
+                                      {line.prepStatus === 'PENDING' ? t('kitchen.startPrep') : line.prepStatus === 'PREPARING' ? t('kitchen.markReady') : t('kitchen.servedBtn')}
+                                    </button>
                                   </li>
                                 ))}
                               </ul>
@@ -666,6 +683,13 @@ export function KitchenKdsPage() {
                                 ? t('common.bar')
                                 : t('common.kitchen')}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
+                              className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
+                            >
+                              {line.prepStatus === 'PENDING' ? 'Démarrer' : line.prepStatus === 'PREPARING' ? 'Prêt' : line.prepStatus === 'READY' ? 'Servi' : 'Reprendre'}
+                            </button>
                           </li>
                         ))}
                       </ul>
@@ -836,6 +860,13 @@ export function KitchenKdsPage() {
                                       ? t('common.bar')
                                       : t('common.kitchen')}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => void updateItemPrepStatus(ord.id, line.id, getNextItemPrepStatus(line.prepStatus))}
+                                    className="ml-2 rounded-md border border-[var(--rm-border)] px-2 py-1 text-[10px] font-semibold text-[var(--rm-ink)] hover:border-[#FF8738]"
+                                  >
+                                    {line.prepStatus === 'PENDING' ? 'Démarrer' : line.prepStatus === 'PREPARING' ? 'Prêt' : line.prepStatus === 'READY' ? 'Servi' : 'Reprendre'}
+                                  </button>
                                 </li>
                               ))}
                             </ul>
@@ -862,7 +893,7 @@ export function KitchenKdsPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void updateStatus(ord.id, 'IN_PREPARATION')
+                                    void updateVisibleItemsPrepStatus(ord.id, visibleItems, 'PREPARING')
                                   }
                                   className="px-3 py-1.5 rounded-lg bg-[#FF8738] hover:bg-[#F07322] text-white text-xs font-semibold cursor-pointer"
                                 >
@@ -873,7 +904,7 @@ export function KitchenKdsPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void updateStatus(ord.id, 'READY')
+                                    void updateVisibleItemsPrepStatus(ord.id, visibleItems, 'READY')
                                   }
                                   className="px-3 py-1.5 rounded-lg bg-[#14B8A6] hover:opacity-90 text-white text-xs font-semibold cursor-pointer"
                                 >
@@ -884,7 +915,7 @@ export function KitchenKdsPage() {
                                 <button
                                   type="button"
                                   onClick={() =>
-                                    void updateStatus(ord.id, 'SERVED')
+                                    void updateVisibleItemsPrepStatus(ord.id, visibleItems, 'SERVED')
                                   }
                                   className="px-3 py-1.5 rounded-lg bg-[#182333] hover:bg-[#223044] dark:bg-[#223044] dark:hover:bg-[#2D4059] text-white text-xs font-semibold cursor-pointer"
                                 >
@@ -897,7 +928,9 @@ export function KitchenKdsPage() {
                       </div>
                     </div>
 
-                    {/* Batch Action Bar when group has multiple orders */}
+                    {/* Batch actions are only available in the combined overview. */}
+                    {fixedStation === 'ALL' && (
+                      <>
                     {grp.orders.length > 1 &&
                       (pendingIds.length > 0 ||
                         prepIds.length > 0 ||
@@ -947,6 +980,8 @@ export function KitchenKdsPage() {
                           )}
                         </div>
                       )}
+                      </>
+                    )}
                   </div>
                 </div>
               );

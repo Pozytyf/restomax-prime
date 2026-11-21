@@ -8,10 +8,12 @@ import type { Permission } from '../../types';
 export function ProtectedRoute({
   children,
   requireSuperAdmin = false,
+  requireOwner = false,
   permission,
 }: {
   children: React.ReactNode;
   requireSuperAdmin?: boolean;
+  requireOwner?: boolean;
   permission?: Permission;
 }) {
   const { t } = useTranslation();
@@ -30,6 +32,10 @@ export function ProtectedRoute({
 
   if (!user) {
     return <Navigate to="/connexion" state={{ from: location.pathname }} replace />;
+  }
+
+  if (requireOwner && user.role !== 'OWNER') {
+    return <Navigate to="/app" replace />;
   }
 
   if (requireSuperAdmin && user.role !== 'SUPER_ADMIN') {

@@ -1,5 +1,6 @@
 import { getDb, generateId } from '../db.ts';
 import { BaseRepository } from './BaseRepository.ts';
+import { AppError } from '../services/errors.ts';
 import type { Permission, Role } from '../../types/index.ts';
 
 export class RestaurantRepository extends BaseRepository {
@@ -194,6 +195,7 @@ export class RestaurantRepository extends BaseRepository {
     priceXof: number;
     costPriceXof: number;
     optionsJson: string;
+    imageUrl?: string | null;
   }) {
     const db = getDb();
     const id = generateId('itm');
@@ -201,7 +203,7 @@ export class RestaurantRepository extends BaseRepository {
       `INSERT INTO menu_items (
         id, restaurant_id, category_id, name, description, price_xof, cost_price_xof,
         image_url, available, sort_order, options_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 1, 99, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 99, ?, ?)`,
     ).run(
       id,
       params.rid,
@@ -210,6 +212,7 @@ export class RestaurantRepository extends BaseRepository {
       params.description,
       params.priceXof,
       params.costPriceXof,
+      params.imageUrl || null,
       params.optionsJson,
       new Date().toISOString(),
     );
@@ -231,6 +234,7 @@ export class RestaurantRepository extends BaseRepository {
       priceXof?: number;
       name?: string;
       description?: string;
+      imageUrl?: string;
     },
   ) {
     const db = getDb();
@@ -253,6 +257,9 @@ export class RestaurantRepository extends BaseRepository {
       db.prepare(
         'UPDATE menu_items SET description = ? WHERE id = ? AND restaurant_id = ?',
       ).run(updates.description, itemId, rid);
+    }
+    if (updates.imageUrl !== undefined) {
+      db.prepare('UPDATE menu_items SET image_url = ? WHERE id = ? AND restaurant_id = ?').run(updates.imageUrl, itemId, rid);
     }
   }
 
@@ -601,6 +608,16 @@ export class RestaurantRepository extends BaseRepository {
       | undefined;
   }
 
+  updateOrderItemPrepStatus(orderId: string, itemId: string, rid: string, status: string) {
+    const db = getDb();
+    const result = db.prepare(
+      `UPDATE order_items SET prep_status = ?
+       WHERE id = ? AND order_id = ?
+       AND EXISTS (SELECT 1 FROM orders WHERE orders.id = order_items.order_id AND orders.restaurant_id = ?)`,
+    ).run(status, itemId, orderId, rid);
+    if (result.changes === 0) throw new AppError(404, 'Article de commande introuvable.');
+  }
+
   updateOrderAndPrepStatus(
     orderId: string,
     rid: string,
@@ -650,11 +667,13 @@ export class RestaurantRepository extends BaseRepository {
 
   findPaymentByIdempotencyKey(rid: string, key: string) {
     const db = getDb();
-    return db
-      .prepare(
-        'SELECT id, reference, amount_xof FROM payments WHERE restaurant_id = ? AND idempotency_key = ?',
-      )
-      .get(rid, key);
+    const row = db.prepare(
+      `SELECT p.id, p.order_id as orderId, p.amount_xof as amountXof,
+              p.method, p.mode, p.reference, p.status, o.status as orderStatus
+       FROM payments p JOIN orders o ON o.id = p.order_id
+       WHERE p.restaurant_id = ? AND p.idempotency_key = ?`,
+    ).get(rid, key) as Record<string, unknown> | undefined;
+    return row ? { ...row, fullyPaid: row.orderStatus === 'PAID' } : undefined;
   }
 
   insertPaymentAndSettleOrder(params: {
@@ -721,15 +740,20 @@ export class RestaurantRepository extends BaseRepository {
       | undefined;
   }
 
-  markPaymentRefunded(paymentId: string, rid: string, orderId: string, amountXof: number) {
+  markPaymentRefunded(paymentId: string, rid: string, orderId: string, _amountXof: number) {
     const db = getDb();
     db.prepare(
-      `UPDATE payments SET status = 'REFUNDED' WHERE id = ? AND restaurant_id = ?`,
-    ).run(paymentId, rid);
-
+      `UPDATE payments SET status = 'REFUNDED', refunded_at = ? WHERE id = ? AND restaurant_id = ?`,
+    ).run(new Date().toISOString(), paymentId, rid);
+    const paidRow = db.prepare(
+      `SELECT COALESCE(SUM(amount_xof), 0) as paid_total FROM payments
+       WHERE restaurant_id = ? AND order_id = ? AND status = 'PAID'`,
+    ).get(rid, orderId) as { paid_total: number };
     db.prepare(
-      `UPDATE orders SET paid_xof = MAX(0, paid_xof - ?), status = 'SERVED', updated_at = ? WHERE id = ? AND restaurant_id = ?`,
-    ).run(amountXof, new Date().toISOString(), orderId, rid);
+      `UPDATE orders SET paid_xof = ?,
+       status = CASE WHEN status = 'PAID' AND ? < total_xof THEN 'SERVED' ELSE status END,
+       updated_at = ? WHERE id = ? AND restaurant_id = ?`,
+    ).run(Number(paidRow.paid_total || 0), Number(paidRow.paid_total || 0), new Date().toISOString(), orderId, rid);
   }
 
   findTablesWithQrAndActiveOrder(rid: string) {
@@ -1463,6 +1487,74 @@ export class RestaurantRepository extends BaseRepository {
     return id;
   }
 
+  findOwnerReport(rid: string, from: string, toExclusive: string) {
+    const db = getDb();
+    const sales = db.prepare(`
+      SELECT COUNT(*) FILTER (WHERE status <> 'CANCELLED') as orders_count,
+        COALESCE(SUM(total_xof) FILTER (WHERE status <> 'CANCELLED'),0) as gross_sales_xof,
+        COALESCE(SUM(discount_xof) FILTER (WHERE status <> 'CANCELLED'),0) as discounts_xof,
+        COALESCE(SUM(tax_xof) FILTER (WHERE status <> 'CANCELLED'),0) as tax_xof,
+        COUNT(*) FILTER (WHERE status='CANCELLED') as cancelled_count,
+        COALESCE(SUM(total_xof) FILTER (WHERE status='CANCELLED'),0) as cancelled_xof,
+        COALESCE(SUM(CASE WHEN status <> 'CANCELLED' THEN total_xof -
+          (SELECT COALESCE(SUM(p.amount_xof),0) FROM payments p WHERE p.order_id=orders.id AND p.restaurant_id=orders.restaurant_id AND p.status='PAID') ELSE 0 END),0) as outstanding_xof,
+        COALESCE(AVG(total_xof) FILTER (WHERE status <> 'CANCELLED'),0) as average_ticket_xof
+      FROM orders WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+    `).get(rid,from,toExclusive) as Record<string,number>;
+    const dailySales = db.prepare(`SELECT substr(created_at,1,10) as day,
+      COALESCE(SUM(total_xof) FILTER (WHERE status<>'CANCELLED'),0) as sales_xof,
+      COUNT(*) FILTER (WHERE status<>'CANCELLED') as orders_count
+      FROM orders WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      GROUP BY substr(created_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const dailyPayments = db.prepare(`SELECT substr(created_at,1,10) as day,SUM(amount_xof) as collected_xof
+      FROM payments WHERE restaurant_id=? AND status IN ('PAID','REFUNDED') AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      GROUP BY substr(created_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const dailyRefunds = db.prepare(`SELECT substr(refunded_at,1,10) as day,SUM(amount_xof) as refunded_xof
+      FROM payments WHERE restaurant_id=? AND status='REFUNDED' AND refunded_at IS NOT NULL
+      AND substr(refunded_at,1,10)>=? AND substr(refunded_at,1,10)<?
+      GROUP BY substr(refunded_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const byMethod = db.prepare(`SELECT method,SUM(amount_xof) as amount_xof,COUNT(*) as count
+      FROM payments WHERE restaurant_id=? AND status IN ('PAID','REFUNDED') AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      GROUP BY method ORDER BY amount_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const topItems = db.prepare(`SELECT oi.name,SUM(oi.quantity) as quantity,SUM(oi.line_total_xof) as sales_xof
+      FROM order_items oi JOIN orders o ON o.id=oi.order_id
+      WHERE o.restaurant_id=? AND o.status<>'CANCELLED' AND substr(o.created_at,1,10)>=? AND substr(o.created_at,1,10)<?
+      GROUP BY oi.name ORDER BY sales_xof DESC LIMIT 10`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const employees = db.prepare(`SELECT o.created_by_user_id as user_id,
+      COALESCE(u.full_name,u.email,'Utilisateur supprimé') as actor,
+      COUNT(*) FILTER (WHERE o.status<>'CANCELLED') as orders_count,
+      COALESCE(SUM(o.total_xof) FILTER (WHERE o.status<>'CANCELLED'),0) as sales_xof,
+      COUNT(*) FILTER (WHERE o.status='CANCELLED') as cancelled_count
+      FROM orders o LEFT JOIN users u ON u.id=o.created_by_user_id
+      WHERE o.restaurant_id=? AND substr(o.created_at,1,10)>=? AND substr(o.created_at,1,10)<?
+      GROUP BY o.created_by_user_id,u.full_name,u.email ORDER BY sales_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const expenses = db.prepare(`SELECT COALESCE(SUM(amount_xof),0) as total_xof,COUNT(*) as count
+      FROM expenses WHERE restaurant_id=? AND substr(expense_date,1,10)>=? AND substr(expense_date,1,10)<?`).get(rid,from,toExclusive) as {total_xof:number;count:number};
+    const cashiers = db.prepare(`SELECT p.created_by_user_id as user_id,
+      COALESCE(u.full_name,u.email,'Utilisateur supprimé') as actor,
+      COUNT(*) as payments_count,COALESCE(SUM(p.amount_xof),0) as collected_xof
+      FROM payments p LEFT JOIN users u ON u.id=p.created_by_user_id
+      WHERE p.restaurant_id=? AND p.status IN ('PAID','REFUNDED')
+      AND substr(p.created_at,1,10)>=? AND substr(p.created_at,1,10)<?
+      GROUP BY p.created_by_user_id,u.full_name,u.email ORDER BY collected_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const collected = dailyPayments.reduce((n,row)=>n+Number(row.collected_xof||0),0);
+    const refunded = dailyRefunds.reduce((n,row)=>n+Number(row.refunded_xof||0),0);
+    return {from,to:toExclusive,summary:{ordersCount:Number(sales.orders_count||0),grossSalesXof:Number(sales.gross_sales_xof||0),
+      collectedXof:collected,refundsXof:refunded,netCollectedXof:collected-refunded,
+      discountsXof:Number(sales.discounts_xof||0),cancelledCount:Number(sales.cancelled_count||0),
+      cancelledXof:Number(sales.cancelled_xof||0),outstandingXof:Number(sales.outstanding_xof||0),
+      averageTicketXof:Math.round(Number(sales.average_ticket_xof||0)),expensesXof:Number(expenses.total_xof||0),taxXof:Number(sales.tax_xof||0)},
+      dailySales,dailyPayments,dailyRefunds,byMethod,topItems,employees,expenses,cashiers};
+  }
+
+  findOwnerAuditLogs(rid: string, from: string, toExclusive: string, limit = 300) {
+    return getDb().prepare(`SELECT id,actor_user_id as actorUserId,actor_email as actorEmail,
+      actor_role as actorRole,action,target_type as targetType,target_id as targetId,
+      details,created_at as createdAt FROM audit_logs
+      WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      ORDER BY created_at DESC LIMIT ?`).all(rid,from,toExclusive,Math.max(1,Math.min(500,limit)));
+  }
+
   findOrdersForCsvExport(rid: string) {
     const db = getDb();
     return db
@@ -1479,7 +1571,7 @@ export class RestaurantRepository extends BaseRepository {
       .prepare(
         `SELECT id, name, slug, email, phone, address, city, country, currency, timezone,
                 tax_rate_percent as taxRatePercent, service_fee_percent as serviceFeePercent,
-                opening_hours as openingHours, paydunya_mode as paydunyaMode,
+                opening_hours as openingHours, logo_url as logoUrl, paydunya_mode as paydunyaMode,
                 paydunya_public_key, paydunya_private_key, paydunya_token,
                 printer_settings_json as printerSettingsJson, status, created_at as createdAt
          FROM restaurants WHERE id = ?`,
@@ -1514,6 +1606,7 @@ export class RestaurantRepository extends BaseRepository {
       paydunyaPrivateKey?: string;
       paydunyaToken?: string;
       printerSettingsJson?: string;
+      logoUrl?: string | null;
     },
   ) {
     const db = getDb();
@@ -1526,7 +1619,8 @@ export class RestaurantRepository extends BaseRepository {
            opening_hours = COALESCE(?, opening_hours),
            tax_rate_percent = COALESCE(?, tax_rate_percent),
            paydunya_mode = COALESCE(?, paydunya_mode),
-           printer_settings_json = COALESCE(?, printer_settings_json)
+           printer_settings_json = COALESCE(?, printer_settings_json),
+           logo_url = COALESCE(?, logo_url)
        WHERE id = ?`,
     ).run(
       params.name,
@@ -1537,6 +1631,7 @@ export class RestaurantRepository extends BaseRepository {
       params.taxRatePercent,
       params.paydunyaMode,
       params.printerSettingsJson ?? null,
+      params.logoUrl ?? null,
       rid,
     );
 

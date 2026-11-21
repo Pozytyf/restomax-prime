@@ -6,7 +6,7 @@ import Database from 'better-sqlite3';
 import knex from 'knex';
 import request from 'supertest';
 import { createExpressApp } from '../server/app.ts';
-import { setTestDb } from '../server/db.ts';
+import { getDb, setTestDb } from '../server/db.ts';
 import { buildPostgresKnexConfig } from '../server/db/knexfile.ts';
 import {
   getSupabaseAdminClient,
@@ -15,18 +15,30 @@ import {
   resetSupabaseSingletonsForTest,
 } from '../server/lib/supabase.ts';
 
-test('1. Supabase DB URL detection & automatic SSL config in Knex', () => {
+test('1. PostgreSQL SSL config verifies TLS certificates and uses small serverless pools', () => {
   const supabaseUrl =
     'postgresql://postgres.abcdef:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres';
   assert.equal(isSupabaseDbUrl(supabaseUrl), true);
   assert.equal(isSupabaseDbUrl('postgres://localhost:5432/restomax'), false);
 
-  const cfg = buildPostgresKnexConfig(supabaseUrl);
-  assert.equal(cfg.client, 'pg');
-  assert.deepEqual(
-    (cfg.connection as { ssl: unknown }).ssl,
-    { rejectUnauthorized: false },
-  );
+  const previousVercel = process.env.VERCEL;
+  const previousPoolMax = process.env.DB_POOL_MAX;
+  try {
+    process.env.VERCEL = '1';
+    delete process.env.DB_POOL_MAX;
+    const cfg = buildPostgresKnexConfig(supabaseUrl);
+    assert.equal(cfg.client, 'pg');
+    assert.equal((cfg.pool as { max: number }).max, 1);
+    assert.deepEqual(
+      (cfg.connection as { ssl: unknown }).ssl,
+      true,
+    );
+  } finally {
+    if (previousVercel === undefined) delete process.env.VERCEL;
+    else process.env.VERCEL = previousVercel;
+    if (previousPoolMax === undefined) delete process.env.DB_POOL_MAX;
+    else process.env.DB_POOL_MAX = previousPoolMax;
+  }
 });
 
 test('2. Supabase runtime config & Admin client initialization', () => {
@@ -174,6 +186,17 @@ test('4. Full Knex migration 0004 runs cleanly and Vercel config + api/index.ts 
   const apiEntryPath = path.resolve(process.cwd(), 'api/index.ts');
   assert.equal(fs.existsSync(vercelJsonPath), true);
   assert.equal(fs.existsSync(apiEntryPath), true);
+  const apiEntry = fs.readFileSync(apiEntryPath, 'utf8');
+  assert.equal(apiEntry.includes("RESTOMAX_POSTGRES_CUTOVER === 'true'"), true);
+  assert.equal(apiEntry.includes('Fail closed: never fall back to ephemeral SQLite'), true);
+  const previousCutover = process.env.RESTOMAX_POSTGRES_CUTOVER;
+  try {
+    process.env.RESTOMAX_POSTGRES_CUTOVER = 'true';
+    assert.throws(() => getDb(), /SQLite access is disabled after the PostgreSQL cutover/);
+  } finally {
+    if (previousCutover === undefined) delete process.env.RESTOMAX_POSTGRES_CUTOVER;
+    else process.env.RESTOMAX_POSTGRES_CUTOVER = previousCutover;
+  }
 
   const vercelConfig = JSON.parse(fs.readFileSync(vercelJsonPath, 'utf8')) as {
     framework: string;
@@ -195,7 +218,7 @@ test('4. Full Knex migration 0004 runs cleanly and Vercel config + api/index.ts 
   assert.equal(vercelConfig.env.DATABASE_CLIENT, 'pg');
   assert.equal(vercelConfig.env.DATABASE_SSL, 'true');
   assert.equal(vercelConfig.env.DB_POOL_MIN, '0');
-  assert.equal(vercelConfig.env.DB_POOL_MAX, '5');
+  assert.equal(vercelConfig.env.DB_POOL_MAX, '1');
   assert.equal(
     vercelConfig.functions['api/index.ts']?.includeFiles,
     'src/server/migrations/**',

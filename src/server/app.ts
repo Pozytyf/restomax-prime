@@ -16,7 +16,8 @@ export function createExpressApp() {
 
   // Healthcheck (single, multi-instance & Supabase/Vercel readiness)
   app.get('/api/health', async (_req, res) => {
-    const dbClient = (process.env.DATABASE_CLIENT || 'sqlite').toLowerCase();
+    const postgresCutover = process.env.RESTOMAX_POSTGRES_CUTOVER === 'true';
+    const dbClient = postgresCutover ? 'pg' : 'sqlite';
     const wsStats = getWebSocketStats();
     const supabaseHealth = await checkSupabaseHealth();
     res.json({
@@ -24,6 +25,7 @@ export function createExpressApp() {
       service: 'restomax',
       timezone: 'Africa/Abidjan',
       dbClient,
+      postgresCutover,
       instanceId: wsStats.instanceId,
       pubsubMode: wsStats.pubsubMode,
       connectedWsClients: wsStats.connectedClients,

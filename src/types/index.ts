@@ -91,6 +91,7 @@ export interface Restaurant {
   email: string;
   phone: string;
   address: string;
+  logoUrl?: string | null;
   city: string;
   country: string;
   currency: string;

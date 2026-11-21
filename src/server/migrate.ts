@@ -1,8 +1,8 @@
-import { getKnex } from './knex.ts';
+import { createMigrationKnex } from './knex.ts';
 
 async function main() {
   const command = process.argv[2] || 'latest';
-  const knex = getKnex();
+  const knex = createMigrationKnex();
 
   try {
     if (command === 'rollback') {
