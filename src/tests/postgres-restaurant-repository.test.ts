@@ -136,19 +136,22 @@ test('several successive installments settle the invoice only on the final payme
 });
 
 test('payment settlement reconciles a stale paid_xof counter from the payment ledger', async () => {
-  await db('orders').where({ id: 'order_1' }).update({ paid_xof: 0, status: 'SERVED' });
+  await db('orders').insert({ id: 'order_stale', restaurant_id: 'rest_1', order_number: 'CMD-STALE',
+    order_type: 'DINE_IN', table_id: 'table_1', customer_name: 'Client', status: 'SERVED',
+    subtotal_xof: 100, discount_xof: 0, tax_xof: 0, total_xof: 100, paid_xof: 0,
+    notes: '', created_at: '2026-11-20T00:00:00.000Z', updated_at: '2026-11-20T00:00:00.000Z' });
   await db('dining_tables').where({ id: 'table_1' }).update({ status: 'OCCUPIED' });
-  await db('payments').insert({ id: 'legacy_payment', restaurant_id: 'rest_1', order_id: 'order_1',
+  await db('payments').insert({ id: 'legacy_payment', restaurant_id: 'rest_1', order_id: 'order_stale',
     amount_xof: 60, method: 'CASH', status: 'PAID', mode: 'TEST', reference: 'LEGACY-60',
     idempotency_key: 'legacy-payment', created_by_user_id: 'user_1', created_at: '2026-11-20T00:00:30.000Z' });
   const result = await repository.recordPaymentTransaction({
-    rid: 'rest_1', orderId: 'order_1', paymentId: 'pay_reconcile', amountXof: 40,
+    rid: 'rest_1', orderId: 'order_stale', paymentId: 'pay_reconcile', amountXof: 40,
     method: 'CASH', mode: 'TEST', reference: 'TEST-CASH-100002', idempotencyKey: 'payment-reconcile',
     userId: 'user_1', actorEmail: 'owner@example.ci', actorRole: 'OWNER', now: '2026-11-20T00:04:00.000Z',
   });
   assert.equal(result.payment.fullyPaid, true);
-  assert.equal((await db('orders').where({ id: 'order_1' }).first())?.status, 'PAID');
-  assert.equal(Number((await db('orders').where({ id: 'order_1' }).first())?.paid_xof), 100);
+  assert.equal((await db('orders').where({ id: 'order_stale' }).first())?.status, 'PAID');
+  assert.equal(Number((await db('orders').where({ id: 'order_stale' }).first())?.paid_xof), 100);
   assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'AVAILABLE');
 });
 
