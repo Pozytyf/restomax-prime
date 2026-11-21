@@ -35,6 +35,7 @@ import { CustomersPage } from './restaurant/customers/CustomersPage';
 import { ReservationsPage } from './restaurant/reservations/ReservationsPage';
 import { QrCodesPage } from './restaurant/qr/QrCodesPage';
 import { FinanceReportsPage } from './restaurant/finance/FinanceReportsPage';
+import { OwnerReportsPage } from './restaurant/finance/OwnerReportsPage';
 import { SettingsPage } from './restaurant/settings/SettingsPage';
 
 // Super-admin Portal
@@ -198,6 +199,14 @@ export default function App() {
               element={
                 <ProtectedRoute permission="finance:read">
                   <FinanceReportsPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/app/owner-reports"
+              element={
+                <ProtectedRoute permission="reports:read" requireOwner>
+                  <OwnerReportsPage />
                 </ProtectedRoute>
               }
             />
