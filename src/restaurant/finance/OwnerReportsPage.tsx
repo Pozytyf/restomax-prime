@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowLeft, ArrowRight, CalendarDays, Download, TrendingUp } from 'lucide-react';
+import { Activity, ArrowLeft, ArrowRight, Download, TrendingUp } from 'lucide-react';
 import { RestaurantLayout } from '../RestaurantLayout';
-import { apiFetch, getStoredToken } from '../../services/api';
+import { apiFetch } from '../../services/api';
 import { formatFcfa } from '../../utils/format';
 
 type DailyRow = { day: string; sales_xof?: number; orders_count?: number; collected_xof?: number; refunded_xof?: number };
@@ -49,6 +49,7 @@ export function OwnerReportsPage() {
   const [mode,setMode] = useState<Mode>('month');
   const [tab,setTab] = useState<'reports'|'audit'>('reports');
   const [report,setReport] = useState<Report|null>(null);
+  const [calendarReport,setCalendarReport] = useState<Report|null>(null);
   const [audit,setAudit] = useState<AuditRow[]>([]);
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState('');
@@ -63,19 +64,20 @@ export function OwnerReportsPage() {
     setLoading(true); setError('');
     try {
       const q = (r:{from:string;to:string}) => `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-      const [r,a] = await Promise.all([
+      const [r,calendar,a] = await Promise.all([
         apiFetch<Report>(`/api/restaurant/owner/reports?${q(activeRange)}`),
+        apiFetch<Report>(`/api/restaurant/owner/reports?${q(calendarRange)}`),
         apiFetch<{logs:AuditRow[]}>(`/api/restaurant/owner/audit?${q(calendarRange)}&limit=300`),
       ]);
-      setReport(r); setAudit(a.logs||[]);
+      setReport(r); setCalendarReport(calendar); setAudit(a.logs||[]);
     } catch(e) { setError(e instanceof Error ? e.message : 'Impossible de charger les rapports.'); }
     finally { setLoading(false); }
   },[activeRange,calendarRange]);
   useEffect(()=>{load();},[load]);
 
-  const salesByDay = useMemo(()=>new Map((report?.dailySales||[]).map(r=>[r.day,Number(r.sales_xof||0)])),[report]);
-  const cashByDay = useMemo(()=>new Map((report?.dailyPayments||[]).map(r=>[r.day,Number(r.collected_xof||0)])),[report]);
-  const refundByDay = useMemo(()=>new Map((report?.dailyRefunds||[]).map(r=>[r.day,Number(r.refunded_xof||0)])),[report]);
+  const salesByDay = useMemo(()=>new Map((calendarReport?.dailySales||[]).map(r=>[r.day,Number(r.sales_xof||0)])),[report]);
+  const cashByDay = useMemo(()=>new Map((calendarReport?.dailyPayments||[]).map(r=>[r.day,Number(r.collected_xof||0)])),[report]);
+  const refundByDay = useMemo(()=>new Map((calendarReport?.dailyRefunds||[]).map(r=>[r.day,Number(r.refunded_xof||0)])),[report]);
   const [year,monthNo] = month.split('-').map(Number);
   const firstWeekday = (new Date(Date.UTC(year,monthNo-1,1)).getUTCDay()+6)%7;
   const daysInMonth = new Date(Date.UTC(year,monthNo,0)).getUTCDate();
