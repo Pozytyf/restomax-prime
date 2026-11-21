@@ -775,7 +775,6 @@ export class PostgresRestaurantRepository {
   }
 
   async findOwnerReport(rid: string, from: string, toExclusive: string) {
-    const refundDate = this.db.raw("(p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date");
     const [sales, dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses] = await Promise.all([
       this.db('orders as o').where('o.restaurant_id', rid)
         .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
