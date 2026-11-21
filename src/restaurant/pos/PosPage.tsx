@@ -585,6 +585,7 @@ export function PosPage() {
           method: PaymentMethod;
           reference: string;
           fullyPaid: boolean;
+          orderStatus?: string;
         };
       }>(`/api/restaurant/orders/${payModalOrder.id}/pay`, {
         method: 'POST',
@@ -617,7 +618,12 @@ export function PosPage() {
         })),
       });
       setPayModalOrder(null);
-      void loadData();
+      if (res.payment.fullyPaid || res.payment.orderStatus === 'PAID') {
+        // Remove the settled bill immediately; the subsequent refresh reconciles
+        // the table status and the rest of the POS snapshot with PostgreSQL.
+        setOpenOrders((current) => current.filter((order) => order.id !== payModalOrder.id));
+      }
+      await loadData();
     } catch (err) {
       if (isConnectivityError(err)) {
         wasOnlineRef.current = false;
