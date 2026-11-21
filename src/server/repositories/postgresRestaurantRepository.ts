@@ -812,7 +812,7 @@ export class PostgresRestaurantRepository {
         .select(this.db.raw("TO_CHAR((p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date,'YYYY-MM-DD') as day"),
           this.db.raw('COALESCE(SUM(p.amount_xof),0) as refunded_xof'))
         .groupByRaw("((p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date)").orderBy('day'),
-      this.db('payments as p').where('p.restaurant_id', rid).where('p.status', 'PAID')
+      this.db('payments as p').where('p.restaurant_id', rid).whereIn('p.status', ['PAID','REFUNDED'])
         .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
         .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
         .select('p.method', this.db.raw('SUM(p.amount_xof) as amount_xof'), this.db.raw('COUNT(*)::int as count'))
@@ -854,8 +854,9 @@ export class PostgresRestaurantRepository {
         collectedXof:paymentsTotal, refundsXof:refundsTotal, netCollectedXof:paymentsTotal-refundsTotal,
         discountsXof:Number(salesData?.discounts_xof||0), cancelledCount:Number(salesData?.cancelled_count||0),
         cancelledXof:Number(salesData?.cancelled_xof||0), outstandingXof:Number(salesData?.outstanding_xof||0),
-        averageTicketXof:Math.round(Number(salesData?.average_ticket_xof||0)), expensesXof:expenseTotal },
-      dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses,
+        averageTicketXof:Math.round(Number(salesData?.average_ticket_xof||0)), expensesXof:expenseTotal,
+        taxXof:Number(salesData?.tax_xof||0) },
+      dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses, cashiers,
     };
   }
 
