@@ -665,10 +665,18 @@ export class PostgresRestaurantRepository {
         .where({ id: params.orderId, restaurant_id: params.rid }).forUpdate().first();
       if (!order) throw new AppError(404, 'Commande introuvable.');
       if (order.status === 'CANCELLED') throw new AppError(400, 'Impossible d’encaisser une commande annulée.');
-      const remaining = Number(order.total_xof) - Number(order.paid_xof);
+      // Derive the settled amount from the payment ledger, not only the denormalized
+      // orders.paid_xof counter. This repairs stale counters while preserving the
+      // row lock that serializes concurrent installments for the same order.
+      const paidRow = await trx('payments')
+        .where({ restaurant_id: params.rid, order_id: params.orderId, status: 'PAID' })
+        .sum({ paidTotal: 'amount_xof' })
+        .first();
+      const paidBefore = Number(paidRow?.paidTotal || 0);
+      const remaining = Math.max(0, Number(order.total_xof) - paidBefore);
       if (remaining <= 0) throw new AppError(409, 'Cette commande est déjà intégralement payée.');
       if (params.amountXof > remaining) throw new AppError(400, 'Le montant dépasse le solde restant dû.');
-      const newPaid = Number(order.paid_xof) + params.amountXof;
+      const newPaid = paidBefore + params.amountXof;
       const fullyPaid = newPaid >= Number(order.total_xof);
       await trx('payments').insert({
         id: params.paymentId, restaurant_id: params.rid, order_id: params.orderId,
