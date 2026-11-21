@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Activity,
   BarChart3,
   CalendarClock,
   ChefHat,
@@ -109,6 +110,12 @@ const ALL_NAV: Array<{
     labelKey: 'nav.finance',
     icon: BarChart3,
     permission: 'finance:read',
+  },
+  {
+    to: '/app/owner-reports',
+    labelKey: 'nav.ownerReports',
+    icon: Activity,
+    permission: 'reports:read',
   },
   {
     to: '/app/settings',
