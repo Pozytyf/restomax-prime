@@ -292,6 +292,7 @@ function runMigrations(db: SqliteDatabase): void {
       reference TEXT NOT NULL,
       idempotency_key TEXT,
       created_by_user_id TEXT REFERENCES users(id),
+      refunded_at TEXT,
       created_at TEXT NOT NULL,
       UNIQUE(restaurant_id, idempotency_key)
     );
@@ -438,6 +439,22 @@ function runMigrations(db: SqliteDatabase): void {
       message TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL
     );
+  `);
+
+  // Upgrade existing SQLite files with refund timestamps and protect audit history.
+  const paymentCols = db.prepare('PRAGMA table_info(payments)').all() as Array<{ name: string }>;
+  if (!paymentCols.some((column) => column.name === 'refunded_at')) {
+    db.exec('ALTER TABLE payments ADD COLUMN refunded_at TEXT;');
+  }
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS audit_logs_no_update
+    BEFORE UPDATE ON audit_logs BEGIN
+      SELECT RAISE(ABORT, 'audit_logs is append-only');
+    END;
+    CREATE TRIGGER IF NOT EXISTS audit_logs_no_delete
+    BEFORE DELETE ON audit_logs BEGIN
+      SELECT RAISE(ABORT, 'audit_logs is append-only');
+    END;
   `);
 
   // Ensure users auth/RBAC & tenant columns exist when upgrading an older database file
