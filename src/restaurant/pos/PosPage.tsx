@@ -110,6 +110,7 @@ export function PosPage() {
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const customerInputRef = useRef<HTMLInputElement | null>(null);
+  const onlineLoadSequenceRef = useRef(0);
 
   const refreshQueue = useCallback(async () => {
     const entries = await listOfflineQueue(restaurantId);
@@ -118,6 +119,7 @@ export function PosPage() {
   }, [restaurantId]);
 
   const fetchOnlineData = useCallback(async () => {
+    const requestSequence = ++onlineLoadSequenceRef.current;
     const [m, tRes, o] = await Promise.all([
       apiFetch<{ categories: MenuCategory[]; items: MenuItem[] }>(
         '/api/restaurant/menu',
@@ -126,9 +128,14 @@ export function PosPage() {
       apiFetch<{ orders: Order[] }>('/api/restaurant/orders'),
     ]);
 
+    // A slower, older request must never overwrite a newer POS snapshot.
+    // This matters when payment, realtime events and manual refresh overlap.
+    if (requestSequence !== onlineLoadSequenceRef.current) return;
+
     const availableItems = m.items.filter((i) => i.available);
     const activeOrders = o.orders.filter(
-      (ord) => ord.status !== 'PAID' && ord.status !== 'CANCELLED',
+      (ord) => String(ord.status).toUpperCase() !== 'PAID' &&
+        String(ord.status).toUpperCase() !== 'CANCELLED',
     );
     const now = new Date().toISOString();
 
@@ -649,7 +656,7 @@ export function PosPage() {
   const pendingPayTotalsByOrderId = useMemo(() => {
     const map = new Map<string, number>();
     for (const entry of offlineQueue) {
-      if (entry.kind === 'PAY_ORDER') {
+      if (entry.kind === 'PAY_ORDER' && entry.status === 'PENDING') {
         map.set(
           entry.targetOrderId,
           (map.get(entry.targetOrderId) || 0) + entry.payload.amountXof,
