@@ -108,9 +108,10 @@ export function OwnerDashboardPage() {
         const def = WIDGET_DEFINITION_MAP[pref.id];
         if (!def) return false;
         if (def.requiresFinance && !finance) return false;
+        if (pref.id === 'staff-activity' && !can('reports:read')) return false;
         return true;
       });
-  }, [finance, widgetPrefs]);
+  }, [can, finance, widgetPrefs]);
 
   const renderWidgetContent = (id: DashboardWidgetId) => {
     if (!data) return null;
