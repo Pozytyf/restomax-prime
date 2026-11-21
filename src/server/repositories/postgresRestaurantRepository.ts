@@ -154,7 +154,7 @@ export class PostgresRestaurantRepository {
   }
 
   async findOrdersWithItems(rid: string) {
-    const selectOrders = (query: Knex.QueryBuilder) => query
+    const selectOrders = () => this.db('orders as o')
       .leftJoin('dining_tables as t', 't.id', 'o.table_id')
       .where('o.restaurant_id', rid)
       .select('o.id', { restaurantId: 'o.restaurant_id' },
@@ -168,7 +168,7 @@ export class PostgresRestaurantRepository {
     // Never hide an unpaid invoice just because the restaurant has more than
     // 100 newer completed orders. Keep every active bill and cap only history.
     const [activeOrders, recentClosedOrders] = await Promise.all([
-      selectOrders(this.db('orders as o').queryBuilder())
+      selectOrders()
         .whereNotIn('o.status', ['PAID', 'CANCELLED']).orderBy('o.created_at', 'desc'),
       selectOrders(this.db('orders as o').queryBuilder())
         .whereIn('o.status', ['PAID', 'CANCELLED']).orderBy('o.created_at', 'desc').limit(100),
