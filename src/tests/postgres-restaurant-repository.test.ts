@@ -155,6 +155,18 @@ test('payment settlement reconciles a stale paid_xof counter from the payment le
   assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'AVAILABLE');
 });
 
+test('a paid invoice cannot be reopened by a delayed kitchen status update', async () => {
+  await db('orders').insert({ id: 'order_paid_terminal', restaurant_id: 'rest_1', order_number: 'CMD-PAID',
+    order_type: 'DINE_IN', table_id: 'table_1', customer_name: 'Client', status: 'PAID',
+    subtotal_xof: 100, discount_xof: 0, tax_xof: 0, total_xof: 100, paid_xof: 100,
+    notes: '', created_at: '2026-11-20T00:05:00.000Z', updated_at: '2026-11-20T00:05:00.000Z' });
+  await assert.rejects(
+    repository.updateOrderStatusTransaction('order_paid_terminal', 'rest_1', 'SERVED'),
+    /déjà encaissée et clôturée/,
+  );
+  assert.equal((await db('orders').where({ id: 'order_paid_terminal' }).first())?.status, 'PAID');
+});
+
 test('table listing joins only active QR codes and regeneration revokes the previous token', async () => {
   const tables = await repository.findTablesWithQrAndActiveOrder('rest_1');
   assert.equal(tables.length, 1);
