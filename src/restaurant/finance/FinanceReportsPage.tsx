@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, Plus } from 'lucide-react';
 import { RestaurantLayout } from '../RestaurantLayout';
+import { useAuth } from '../../app/providers/AuthProvider';
 import { apiFetch, getStoredToken } from '../../services/api';
 import { useToast } from '../../components/Toast';
 import {
@@ -36,6 +37,8 @@ interface FinanceData {
 
 export function FinanceReportsPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const isOwner = user?.role === 'OWNER';
   const { notify } = useToast();
   const [data, setData] = useState<FinanceData | null>(null);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
@@ -117,22 +120,22 @@ export function FinanceReportsPage() {
       title={t('pages.financeTitle')}
       actions={
         <div className="flex gap-2">
-          <button
+          {isOwner && <button
             type="button"
             onClick={() => setShowExp((v) => !v)}
             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--rm-border)] bg-[var(--rm-surface)] hover:bg-[var(--rm-surface-hover)] text-[var(--rm-ink)] text-xs font-semibold cursor-pointer transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>{t('pages.expenseBtn')}</span>
-          </button>
-          <button
+          </button>}
+          {isOwner && <button
             type="button"
             onClick={downloadCsv}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#182333] dark:bg-[#223044] hover:bg-[#223044] dark:hover:bg-[#2D4059] dark:border dark:border-[var(--rm-border)] text-white text-xs font-semibold cursor-pointer"
           >
             <Download className="w-3.5 h-3.5" />
             <span>{t('pages.exportCsvBtn')}</span>
-          </button>
+          </button>}
         </div>
       }
     >
@@ -184,7 +187,7 @@ export function FinanceReportsPage() {
             </div>
           </div>
 
-          {showExp && (
+          {isOwner && showExp && (
             <form
               onSubmit={addExpense}
               className="bg-[var(--rm-surface)] rounded-xl border border-[var(--rm-border)] p-5 grid grid-cols-1 sm:grid-cols-4 gap-3 items-end"
