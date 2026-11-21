@@ -743,8 +743,8 @@ export class RestaurantRepository extends BaseRepository {
   markPaymentRefunded(paymentId: string, rid: string, orderId: string, _amountXof: number) {
     const db = getDb();
     db.prepare(
-      `UPDATE payments SET status = 'REFUNDED' WHERE id = ? AND restaurant_id = ?`,
-    ).run(paymentId, rid);
+      `UPDATE payments SET status = 'REFUNDED', refunded_at = ? WHERE id = ? AND restaurant_id = ?`,
+    ).run(new Date().toISOString(), paymentId, rid);
     const paidRow = db.prepare(
       `SELECT COALESCE(SUM(amount_xof), 0) as paid_total FROM payments
        WHERE restaurant_id = ? AND order_id = ? AND status = 'PAID'`,
