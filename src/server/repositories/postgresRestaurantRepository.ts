@@ -732,7 +732,7 @@ export class PostgresRestaurantRepository {
         .where({ id: params.paymentId, restaurant_id: params.rid }).forUpdate().first();
       if (!payment) throw new AppError(404, 'Paiement introuvable.');
       if (payment.status === 'REFUNDED') throw new AppError(409, 'Ce paiement a déjà été remboursé.');
-      await trx('payments').where({ id: params.paymentId, restaurant_id: params.rid }).update({ status: 'REFUNDED' });
+      await trx('payments').where({ id: params.paymentId, restaurant_id: params.rid }).update({ status: 'REFUNDED', refunded_at: new Date().toISOString() });
       const order = await trx('orders').select('total_xof', 'status')
         .where({ id: payment.order_id, restaurant_id: params.rid }).forUpdate().first();
       if (order) {
@@ -752,6 +752,91 @@ export class PostgresRestaurantRepository {
       }, trx);
       return payment;
     });
+  }
+
+  async findOwnerReport(rid: string, from: string, toExclusive: string) {
+    const orderDate = this.db.raw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date");
+    const paymentDate = this.db.raw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date");
+    const refundDate = this.db.raw("(p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date");
+    const [sales, dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses] = await Promise.all([
+      this.db('orders as o').where('o.restaurant_id', rid)
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
+        .select(
+          this.db.raw("COUNT(*) FILTER (WHERE o.status <> 'CANCELLED')::int as orders_count"),
+          this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as gross_sales_xof"),
+          this.db.raw("COALESCE(SUM(o.discount_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as discounts_xof"),
+          this.db.raw("COUNT(*) FILTER (WHERE o.status = 'CANCELLED')::int as cancelled_count"),
+          this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status = 'CANCELLED'),0) as cancelled_xof"),
+          this.db.raw("COALESCE(SUM(o.total_xof - COALESCE((SELECT SUM(p2.amount_xof) FROM payments p2 WHERE p2.order_id=o.id AND p2.restaurant_id=o.restaurant_id AND p2.status='PAID'),0)) FILTER (WHERE o.status <> 'CANCELLED'),0) as outstanding_xof"),
+          this.db.raw("COALESCE(AVG(o.total_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as average_ticket_xof")
+        ).first(),
+      this.db('orders as o').where('o.restaurant_id', rid)
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
+        .select(this.db.raw("TO_CHAR((o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date,'YYYY-MM-DD') as day"),
+          this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as sales_xof"),
+          this.db.raw("COUNT(*) FILTER (WHERE o.status <> 'CANCELLED')::int as orders_count"))
+        .groupByRaw("((o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date)").orderBy('day'),
+      this.db('payments as p').where('p.restaurant_id', rid).where('p.status', 'PAID')
+        .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
+        .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
+        .select(this.db.raw("TO_CHAR((p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date,'YYYY-MM-DD') as day"),
+          this.db.raw('COALESCE(SUM(p.amount_xof),0) as collected_xof'))
+        .groupByRaw("((p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date)").orderBy('day'),
+      this.db('payments as p').where('p.restaurant_id', rid).where('p.status', 'REFUNDED')
+        .whereNotNull('p.refunded_at')
+        .whereRaw("(p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
+        .whereRaw("(p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
+        .select(this.db.raw("TO_CHAR((p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date,'YYYY-MM-DD') as day"),
+          this.db.raw('COALESCE(SUM(p.amount_xof),0) as refunded_xof'))
+        .groupByRaw("((p.refunded_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date)").orderBy('day'),
+      this.db('payments as p').where('p.restaurant_id', rid).where('p.status', 'PAID')
+        .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
+        .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
+        .select('p.method', this.db.raw('SUM(p.amount_xof) as amount_xof'), this.db.raw('COUNT(*)::int as count'))
+        .groupBy('p.method').orderBy('amount_xof','desc'),
+      this.db('order_items as oi').join('orders as o','o.id','oi.order_id')
+        .where('o.restaurant_id',rid).whereNot('o.status','CANCELLED')
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date",[from])
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date",[toExclusive])
+        .select('oi.name',this.db.raw('SUM(oi.quantity)::int as quantity'),this.db.raw('SUM(oi.line_total_xof) as sales_xof'))
+        .groupBy('oi.name').orderBy('sales_xof','desc').limit(10),
+      this.db('orders as o').leftJoin('users as u','u.id','o.created_by_user_id')
+        .where('o.restaurant_id',rid)
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date",[from])
+        .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date",[toExclusive])
+        .select('o.created_by_user_id as user_id',this.db.raw("COALESCE(u.full_name,u.email,'Utilisateur supprimé') as actor"),
+          this.db.raw("COUNT(*) FILTER (WHERE o.status <> 'CANCELLED')::int as orders_count"),
+          this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as sales_xof"),
+          this.db.raw("COUNT(*) FILTER (WHERE o.status = 'CANCELLED')::int as cancelled_count"))
+        .groupBy('o.created_by_user_id','u.full_name','u.email').orderBy('sales_xof','desc'),
+      this.db('expenses').where({restaurant_id:rid})
+        .whereRaw("LEFT(expense_date,10) >= ?",[from]).whereRaw("LEFT(expense_date,10) < ?",[toExclusive])
+        .select(this.db.raw('COALESCE(SUM(amount_xof),0) as total_xof'),this.db.raw('COUNT(*)::int as count')).first(),
+    ]);
+    const paymentsTotal = dailyPayments.reduce((n: number, row: any) => n + Number(row.collected_xof || 0), 0);
+    const refundsTotal = dailyRefunds.reduce((n: number, row: any) => n + Number(row.refunded_xof || 0), 0);
+    const expenseTotal = Number(expenses?.total_xof || 0);
+    return {
+      from, to: toExclusive,
+      summary: { ordersCount:Number(sales?.orders_count||0), grossSalesXof:Number(sales?.gross_sales_xof||0),
+        collectedXof:paymentsTotal, refundsXof:refundsTotal, netCollectedXof:paymentsTotal-refundsTotal,
+        discountsXof:Number(sales?.discounts_xof||0), cancelledCount:Number(sales?.cancelled_count||0),
+        cancelledXof:Number(sales?.cancelled_xof||0), outstandingXof:Number(sales?.outstanding_xof||0),
+        averageTicketXof:Math.round(Number(sales?.average_ticket_xof||0)), expensesXof:expenseTotal },
+      dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses,
+    };
+  }
+
+  async findOwnerAuditLogs(rid: string, from: string, toExclusive: string, limit = 300) {
+    return this.db('audit_logs').where({ restaurant_id: rid })
+      .whereRaw("(created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date",[from])
+      .whereRaw("(created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date",[toExclusive])
+      .select('id',{actorUserId:'actor_user_id'},{actorEmail:'actor_email'},
+        {actorRole:'actor_role'},'action',{targetType:'target_type'},
+        {targetId:'target_id'},'details',{createdAt:'created_at'})
+      .orderBy('created_at','desc').limit(Math.max(1,Math.min(500,limit)));
   }
 
   async recordAudit(params: AuditRecord, trx: Knex | Knex.Transaction = this.db) {
