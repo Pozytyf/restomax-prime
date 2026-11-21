@@ -557,8 +557,11 @@ export class PostgresRestaurantRepository {
   }
 
   async findPaymentByIdempotencyKey(rid: string, key: string) {
-    return this.db('payments').select('id', 'reference', 'amount_xof')
-      .where({ restaurant_id: rid, idempotency_key: key }).first();
+    const row = await this.db('payments as p').join('orders as o', 'o.id', 'p.order_id')
+      .select('p.id', { orderId: 'p.order_id' }, { amountXof: 'p.amount_xof' },
+        'p.method', 'p.mode', 'p.reference', 'p.status', { orderStatus: 'o.status' })
+      .where({ 'p.restaurant_id': rid, 'p.idempotency_key': key }).first();
+    return row ? { ...row, fullyPaid: row.orderStatus === 'PAID' } : undefined;
   }
 
   async findOrderByIdempotencyKey(rid: string, key: string) {
@@ -730,11 +733,18 @@ export class PostgresRestaurantRepository {
       if (!payment) throw new AppError(404, 'Paiement introuvable.');
       if (payment.status === 'REFUNDED') throw new AppError(409, 'Ce paiement a déjà été remboursé.');
       await trx('payments').where({ id: params.paymentId, restaurant_id: params.rid }).update({ status: 'REFUNDED' });
-      const order = await trx('orders').select('paid_xof').where({ id: payment.order_id, restaurant_id: params.rid }).forUpdate().first();
-      if (order) await trx('orders').where({ id: payment.order_id, restaurant_id: params.rid }).update({
-        paid_xof: Math.max(0, Number(order.paid_xof) - Number(payment.amount_xof)),
-        status: 'SERVED', updated_at: new Date().toISOString(),
-      });
+      const order = await trx('orders').select('total_xof', 'status')
+        .where({ id: payment.order_id, restaurant_id: params.rid }).forUpdate().first();
+      if (order) {
+        const paidRow = await trx('payments').where({ restaurant_id: params.rid,
+          order_id: payment.order_id, status: 'PAID' }).sum({ paidTotal: 'amount_xof' }).first();
+        const paidAfterRefund = Number(paidRow?.paidTotal || 0);
+        const nextStatus = order.status === 'PAID' && paidAfterRefund < Number(order.total_xof)
+          ? 'SERVED' : order.status;
+        await trx('orders').where({ id: payment.order_id, restaurant_id: params.rid }).update({
+          paid_xof: paidAfterRefund, status: nextStatus, updated_at: new Date().toISOString(),
+        });
+      }
       await this.recordAudit({
         actorUserId: params.userId, actorEmail: params.actorEmail, actorRole: params.actorRole,
         restaurantId: params.rid, action: 'PAYMENT_REFUNDED', targetType: 'PAYMENT',
