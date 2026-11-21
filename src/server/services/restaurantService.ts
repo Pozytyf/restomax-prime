@@ -617,6 +617,8 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     if (!order) {
       throw new AppError(404, 'Commande introuvable.');
     }
+    if (order.status === 'PAID') throw new AppError(409, 'Cette commande est déjà encaissée et clôturée.');
+    if (order.status === 'CANCELLED') throw new AppError(409, 'Cette commande est annulée et ne peut plus être modifiée.');
 
     restaurantRepository.updateOrderAndPrepStatus(
       orderId,
