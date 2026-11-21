@@ -15,7 +15,7 @@ import {
   resetSupabaseSingletonsForTest,
 } from '../server/lib/supabase.ts';
 
-test('1. Supabase DB URL detection & automatic SSL config in Knex', () => {
+test('1. PostgreSQL SSL config verifies TLS certificates and uses small serverless pools', () => {
   const supabaseUrl =
     'postgresql://postgres.abcdef:secret@aws-0-eu-west-1.pooler.supabase.com:6543/postgres';
   assert.equal(isSupabaseDbUrl(supabaseUrl), true);
@@ -31,7 +31,7 @@ test('1. Supabase DB URL detection & automatic SSL config in Knex', () => {
     assert.equal((cfg.pool as { max: number }).max, 1);
     assert.deepEqual(
       (cfg.connection as { ssl: unknown }).ssl,
-      { rejectUnauthorized: false },
+      true,
     );
   } finally {
     if (previousVercel === undefined) delete process.env.VERCEL;
