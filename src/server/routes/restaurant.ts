@@ -212,6 +212,16 @@ restaurantRouter.get(
   requirePermission('finance:read'),
   restaurantController.getFinance,
 );
+restaurantRouter.get(
+  '/owner/reports',
+  requireOwner,
+  restaurantController.getOwnerReport,
+);
+restaurantRouter.get(
+  '/owner/audit',
+  requireOwner,
+  restaurantController.getOwnerAuditLogs,
+);
 restaurantRouter.post(
   '/expenses',
   requireOwner,
