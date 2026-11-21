@@ -581,7 +581,7 @@ export class PostgresRestaurantRepository {
     orderId: string; rid: string; orderNumber: string; orderType: string;
     tableId: string | null; customerName: string; subtotalXof: number;
     discountXof: number; taxXof: number; totalXof: number; notes: string;
-    idempotencyKey: string | null; userId: string; now: string;
+    idempotencyKey: string | null; userId: string; actorEmail: string; actorRole: string; now: string;
     lines: Array<{ id: string; menuItemId: string; name: string; station: string;
       unitPriceXof: number; optionsSummary: string; optionsDeltaXof: number;
       quantity: number; lineTotalXof: number; notes: string }>;
@@ -604,6 +604,12 @@ export class PostgresRestaurantRepository {
       })));
       if (params.tableId) await trx('dining_tables')
         .where({ id: params.tableId, restaurant_id: params.rid }).update({ status: 'OCCUPIED' });
+      await this.recordAudit({
+        actorUserId: params.userId, actorEmail: params.actorEmail, actorRole: params.actorRole,
+        restaurantId: params.rid, action: params.discountXof > 0 ? 'ORDER_CREATED_WITH_DISCOUNT' : 'ORDER_CREATED',
+        targetType: 'ORDER', targetId: params.orderId,
+        details: `${params.orderNumber} · ${params.totalXof} FCFA · remise ${params.discountXof} FCFA`,
+      }, trx);
 
       const qtyByMenuItem = new Map<string, number>();
       for (const line of params.lines) qtyByMenuItem.set(
@@ -658,9 +664,10 @@ export class PostgresRestaurantRepository {
     });
   }
 
-  async updateOrderStatusTransaction(orderId: string, rid: string, status: string) {
+  async updateOrderStatusTransaction(params: { orderId: string; rid: string; status: string; userId: string; actorEmail: string; actorRole: string }) {
+    const { orderId, rid, status } = params;
     return this.db.transaction(async trx => {
-      const order = await trx('orders').select('id', 'table_id', 'status')
+      const order = await trx('orders').select('id', 'table_id', 'status', 'order_number')
         .where({ id: orderId, restaurant_id: rid }).forUpdate().first();
       if (!order) throw new AppError(404, 'Commande introuvable.');
       // PAID and CANCELLED are terminal financial states. A delayed KDS update
@@ -673,6 +680,11 @@ export class PostgresRestaurantRepository {
       else if (status === 'READY' || status === 'SERVED') await trx('order_items').where({ order_id: orderId }).update({ prep_status: status });
       else if (status === 'CANCELLED' && order.table_id) await trx('dining_tables')
         .where({ id: order.table_id, restaurant_id: rid }).update({ status: 'AVAILABLE' });
+      await this.recordAudit({ actorUserId: params.userId, actorEmail: params.actorEmail,
+        actorRole: params.actorRole, restaurantId: rid,
+        action: status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATUS_CHANGED',
+        targetType: 'ORDER', targetId: orderId,
+        details: `${order.order_number} · ${order.status} → ${status}` }, trx);
       return order;
     });
   }
@@ -784,7 +796,7 @@ export class PostgresRestaurantRepository {
           this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as sales_xof"),
           this.db.raw("COUNT(*) FILTER (WHERE o.status <> 'CANCELLED')::int as orders_count"))
         .groupByRaw("((o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date)").orderBy('day'),
-      this.db('payments as p').where('p.restaurant_id', rid).where('p.status', 'PAID')
+      this.db('payments as p').where('p.restaurant_id', rid).whereIn('p.status', ['PAID','REFUNDED'])
         .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
         .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
         .select(this.db.raw("TO_CHAR((p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date,'YYYY-MM-DD') as day"),
