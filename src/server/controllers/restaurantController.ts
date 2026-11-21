@@ -7,6 +7,11 @@ export const restaurantController = {
   async getDashboard(req: Request, res: Response) {
     try {
       const data = await restaurantService.getDashboard(req.auth!.restaurantId!);
+      if (req.auth!.role !== 'OWNER') {
+        const { staffActivity: _ownerOnlyActivity, ...operationalDashboard } = data;
+        res.json(operationalDashboard);
+        return;
+      }
       res.json(data);
     } catch (err) {
       handleControllerError(res, err, 'Erreur chargement dashboard.');
