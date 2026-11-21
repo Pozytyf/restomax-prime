@@ -38,6 +38,12 @@ function rangeFor(date: string, mode: Mode) {
 }
 
 function previousRangeFor(date:string,mode:Mode) {
+  const d=new Date(date+'T00:00:00.000Z');
+  if(mode==='month') {
+    const start=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()-1,1));
+    const end=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth(),0));
+    return {from:dateString(start),to:dateString(end)};
+  }
   const current=rangeFor(date,mode);
   const start=new Date(current.from+'T00:00:00.000Z');
   const end=new Date(current.to+'T00:00:00.000Z');
@@ -47,7 +53,7 @@ function previousRangeFor(date:string,mode:Mode) {
   return {from:dateString(prevStart),to:dateString(prevEnd)};
 }
 function changeLabel(current:number,previous:number) {
-  if (!previous) return current ? '+100%' : '0%';
+  if (!previous) return current ? 'Nouveau' : '0%';
   const pct=((current-previous)/Math.abs(previous))*100;
   return `${pct>0?'+':''}${pct.toFixed(1)}%`;
 }
