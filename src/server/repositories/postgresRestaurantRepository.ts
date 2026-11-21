@@ -637,9 +637,13 @@ export class PostgresRestaurantRepository {
 
   async updateOrderStatusTransaction(orderId: string, rid: string, status: string) {
     return this.db.transaction(async trx => {
-      const order = await trx('orders').select('id', 'table_id')
+      const order = await trx('orders').select('id', 'table_id', 'status')
         .where({ id: orderId, restaurant_id: rid }).forUpdate().first();
       if (!order) throw new AppError(404, 'Commande introuvable.');
+      // PAID and CANCELLED are terminal financial states. A delayed KDS update
+      // must not turn a settled invoice back into SERVED/READY/PENDING.
+      if (order.status === 'PAID') throw new AppError(409, 'Cette commande est déjà encaissée et clôturée.');
+      if (order.status === 'CANCELLED') throw new AppError(409, 'Cette commande est annulée et ne peut plus être modifiée.');
       await trx('orders').where({ id: orderId, restaurant_id: rid })
         .update({ status, updated_at: new Date().toISOString() });
       if (status === 'IN_PREPARATION') await trx('order_items').where({ order_id: orderId, prep_status: 'PENDING' }).update({ prep_status: 'PREPARING' });
@@ -657,9 +661,13 @@ export class PostgresRestaurantRepository {
   }) {
     return this.db.transaction(async trx => {
       if (params.idempotencyKey) {
-        const duplicate = await trx('payments').select('id', 'reference', 'amount_xof')
-          .where({ restaurant_id: params.rid, idempotency_key: params.idempotencyKey }).first();
-        if (duplicate) return { deduplicated: true, payment: duplicate };
+        const duplicate = await trx('payments as p').join('orders as o', 'o.id', 'p.order_id')
+          .select('p.id', { orderId: 'p.order_id' }, { amountXof: 'p.amount_xof' },
+            'p.method', 'p.mode', 'p.reference', 'p.status', { orderStatus: 'o.status' })
+          .where({ 'p.restaurant_id': params.rid, 'p.idempotency_key': params.idempotencyKey }).first();
+        if (duplicate) return { deduplicated: true, payment: {
+          ...duplicate, fullyPaid: duplicate.orderStatus === 'PAID',
+        } };
       }
       const order = await trx('orders').select('id', 'table_id', 'total_xof', 'paid_xof', 'status')
         .where({ id: params.orderId, restaurant_id: params.rid }).forUpdate().first();
