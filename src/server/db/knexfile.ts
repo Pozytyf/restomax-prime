@@ -59,8 +59,7 @@ function createSqlitePoolConfig(filename: string): Knex.PoolConfig {
 }
 
 export function buildPostgresKnexConfig(
-  connectionString: string =
-    process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || '',
+  connectionString: string = process.env.DATABASE_URL || '',
 ): Knex.Config {
   const lower = connectionString.toLowerCase();
   const isSupabaseHost =
@@ -72,7 +71,8 @@ export function buildPostgresKnexConfig(
     client: 'pg',
     connection: {
       connectionString,
-      ssl: useSsl ? { rejectUnauthorized: false } : false,
+      // `true` enables TLS with certificate verification; do not disable CA validation.
+      ssl: useSsl ? true : false,
     },
     pool: {
       min: Number(process.env.DB_POOL_MIN || (process.env.VERCEL ? 0 : 2)),
@@ -90,7 +90,7 @@ export function buildPostgresKnexConfig(
 }
 
 export function buildKnexConfig(dbPath: string = defaultDbPath): Knex.Config {
-  const pgUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL || '';
+  const pgUrl = process.env.DATABASE_URL || '';
   const client = (process.env.DATABASE_CLIENT || 'sqlite').toLowerCase();
   if (
     (client === 'pg' || client === 'postgres' || client === 'postgresql') &&
