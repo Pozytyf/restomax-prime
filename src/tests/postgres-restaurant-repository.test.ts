@@ -136,7 +136,8 @@ test('several successive installments settle the invoice only on the final payme
 });
 
 test('payment settlement reconciles a stale paid_xof counter from the payment ledger', async () => {
-  await db('orders').where({ id: 'order_1' }).update({ paid_xof: 0 });
+  await db('orders').where({ id: 'order_1' }).update({ paid_xof: 0, status: 'SERVED' });
+  await db('dining_tables').where({ id: 'table_1' }).update({ status: 'OCCUPIED' });
   await db('payments').insert({ id: 'legacy_payment', restaurant_id: 'rest_1', order_id: 'order_1',
     amount_xof: 60, method: 'CASH', status: 'PAID', mode: 'TEST', reference: 'LEGACY-60',
     idempotency_key: 'legacy-payment', created_by_user_id: 'user_1', created_at: '2026-11-20T00:00:30.000Z' });
