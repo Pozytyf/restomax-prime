@@ -9,9 +9,18 @@ import type { Knex } from 'knex';
 export async function up(knex: Knex): Promise<void> {
   if (knex.client.config.client !== 'pg') return;
 
-  await knex.raw("ALTER FUNCTION public.current_tenant_id() SET search_path = ''");
-  await knex.raw("ALTER FUNCTION public.is_superadmin() SET search_path = ''");
-  await knex.raw("ALTER FUNCTION public.sync_restaurant_to_tenant() SET search_path = ''");
+  // These helpers exist in the legacy Supabase deployment, but not in a
+  // clean Neon/PostgreSQL installation. Harden only functions that exist.
+  for (const signature of [
+    'public.current_tenant_id()',
+    'public.is_superadmin()',
+    'public.sync_restaurant_to_tenant()',
+  ]) {
+    const found = await knex.raw('SELECT to_regprocedure(?) AS fn', [signature]);
+    if (found.rows?.[0]?.fn) {
+      await knex.raw(`ALTER FUNCTION ${signature} SET search_path = ''`);
+    }
+  }
 
   const indexes: Array<[string, string, string]> = [
     ['customers', 'restaurant_id', 'idx_customers_restaurant_id'],
@@ -74,7 +83,14 @@ export async function down(knex: Knex): Promise<void> {
     'idx_ticket_messages_ticket_id', 'idx_users_role',
   ];
   for (const index of indexes) await knex.raw(`DROP INDEX IF EXISTS public.${index}`);
-  await knex.raw('ALTER FUNCTION public.current_tenant_id() RESET search_path');
-  await knex.raw('ALTER FUNCTION public.is_superadmin() RESET search_path');
-  await knex.raw('ALTER FUNCTION public.sync_restaurant_to_tenant() RESET search_path');
+  for (const signature of [
+    'public.current_tenant_id()',
+    'public.is_superadmin()',
+    'public.sync_restaurant_to_tenant()',
+  ]) {
+    const found = await knex.raw('SELECT to_regprocedure(?) AS fn', [signature]);
+    if (found.rows?.[0]?.fn) {
+      await knex.raw(`ALTER FUNCTION ${signature} RESET search_path`);
+    }
+  }
 }
