@@ -51,8 +51,14 @@ async function startServer() {
     if (!['pg', 'postgres', 'postgresql'].includes(client)) {
       throw new Error('PostgreSQL cutover requested but DATABASE_CLIENT is not pg.');
     }
-    if (!process.env.SUPABASE_DB_URL && !process.env.DATABASE_URL) {
-      throw new Error('PostgreSQL cutover requested but DATABASE_URL / SUPABASE_DB_URL is missing.');
+    if (!process.env.DATABASE_URL) {
+      throw new Error('PostgreSQL cutover requested but DATABASE_URL is missing.');
+    }
+    if (process.env.DATABASE_MIGRATION_URL) {
+      const migrationHost = new URL(process.env.DATABASE_MIGRATION_URL).hostname;
+      if (migrationHost.includes('-pooler')) {
+        throw new Error('DATABASE_MIGRATION_URL must use the direct PostgreSQL endpoint, not a pooler.');
+      }
     }
   }
 
