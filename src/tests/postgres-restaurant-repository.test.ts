@@ -99,24 +99,56 @@ test('a duplicate POS idempotency key rolls back order and stock changes', async
   assert.equal(await db('stock_movements').where({ stock_id: 'stock_1' }).count('* as n').first().then(x => Number(x?.n)), 1);
 });
 
-test('payment settlement is idempotent, respects outstanding balance, and releases table only when paid', async () => {
+test('several successive installments settle the invoice only on the final payment', async () => {
   const base = { rid: 'rest_1', orderId: 'order_1', paymentId: 'pay_1',
-    amountXof: 40, method: 'CASH', mode: 'TEST', reference: 'TEST-CASH-100001',
+    amountXof: 25, method: 'CASH', mode: 'TEST', reference: 'TEST-CASH-100001',
     idempotencyKey: 'payment-1', userId: 'user_1', actorEmail: 'owner@example.ci',
     actorRole: 'OWNER', now: '2026-11-20T00:01:00.000Z' };
   const first = await repository.recordPaymentTransaction(base);
   assert.equal(first.deduplicated, false);
+  assert.equal(first.payment.fullyPaid, false);
+  assert.equal((await db('orders').where({ id: 'order_1' }).first())?.status, 'PENDING');
+  assert.equal(Number((await db('orders').where({ id: 'order_1' }).first())?.paid_xof), 25);
   assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'OCCUPIED');
+
   const duplicate = await repository.recordPaymentTransaction({ ...base, paymentId: 'pay_dup' });
   assert.equal(duplicate.deduplicated, true);
   await assert.rejects(repository.recordPaymentTransaction({ ...base, paymentId: 'pay_too_much',
     amountXof: 100, idempotencyKey: 'payment-too-much' }));
+
   const second = await repository.recordPaymentTransaction({ ...base, paymentId: 'pay_2',
-    amountXof: 60, idempotencyKey: 'payment-2', now: '2026-11-20T00:02:00.000Z' });
+    amountXof: 35, idempotencyKey: 'payment-2', now: '2026-11-20T00:02:00.000Z' });
   assert.equal(second.deduplicated, false);
+  assert.equal(second.payment.fullyPaid, false);
+  assert.equal((await db('orders').where({ id: 'order_1' }).first())?.status, 'PENDING');
+  assert.equal(Number((await db('orders').where({ id: 'order_1' }).first())?.paid_xof), 60);
+
+  const final = await repository.recordPaymentTransaction({ ...base, paymentId: 'pay_3',
+    amountXof: 40, idempotencyKey: 'payment-3', now: '2026-11-20T00:03:00.000Z' });
+  assert.equal(final.deduplicated, false);
+  assert.equal(final.payment.fullyPaid, true);
+  assert.equal(final.payment.orderStatus, 'PAID');
   assert.equal((await db('orders').where({ id: 'order_1' }).first())?.status, 'PAID');
+  assert.equal(Number((await db('orders').where({ id: 'order_1' }).first())?.paid_xof), 100);
+  assert.equal(Number(await db('payments').where({ order_id: 'order_1', status: 'PAID' }).sum('amount_xof as total').first().then(x => x?.total)), 100);
   assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'AVAILABLE');
-  assert.equal(await db('audit_logs').where({ action: 'PAYMENT_RECORDED' }).count('* as n').first().then(x => Number(x?.n)), 2);
+  assert.equal(await db('audit_logs').where({ action: 'PAYMENT_RECORDED' }).count('* as n').first().then(x => Number(x?.n)), 3);
+});
+
+test('payment settlement reconciles a stale paid_xof counter from the payment ledger', async () => {
+  await db('orders').where({ id: 'order_1' }).update({ paid_xof: 0 });
+  await db('payments').insert({ id: 'legacy_payment', restaurant_id: 'rest_1', order_id: 'order_1',
+    amount_xof: 60, method: 'CASH', status: 'PAID', mode: 'TEST', reference: 'LEGACY-60',
+    idempotency_key: 'legacy-payment', created_by_user_id: 'user_1', created_at: '2026-11-20T00:00:30.000Z' });
+  const result = await repository.recordPaymentTransaction({
+    rid: 'rest_1', orderId: 'order_1', paymentId: 'pay_reconcile', amountXof: 40,
+    method: 'CASH', mode: 'TEST', reference: 'TEST-CASH-100002', idempotencyKey: 'payment-reconcile',
+    userId: 'user_1', actorEmail: 'owner@example.ci', actorRole: 'OWNER', now: '2026-11-20T00:04:00.000Z',
+  });
+  assert.equal(result.payment.fullyPaid, true);
+  assert.equal((await db('orders').where({ id: 'order_1' }).first())?.status, 'PAID');
+  assert.equal(Number((await db('orders').where({ id: 'order_1' }).first())?.paid_xof), 100);
+  assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'AVAILABLE');
 });
 
 test('table listing joins only active QR codes and regeneration revokes the previous token', async () => {
