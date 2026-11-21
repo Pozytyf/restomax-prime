@@ -1520,24 +1520,51 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     };
   }
 
-  async createExpense(rid: string, body: Record<string, unknown>) {
+  async createExpense(auth: AuthContext, body: Record<string, unknown>) {
+    const rid = auth.restaurantId!;
     const { category, description, amountXof, expenseDate } = body || {};
-    if (
-      typeof category !== 'string' ||
-      typeof description !== 'string' ||
-      !Number.isFinite(Number(amountXof)) ||
-      Number(amountXof) <= 0
-    ) {
-      throw new AppError(400, 'Dépense invalide.');
-    }
-    if (isPostgresMode()) return postgresRestaurantRepository.createExpense({ rid, category: category.trim(), description: description.trim(), amountXof: Math.round(Number(amountXof)), expenseDate: expenseDate ? String(expenseDate) : undefined });
-    return restaurantRepository.createExpense({
-      rid,
-      category: category.trim(),
-      description: description.trim(),
-      amountXof: Math.round(Number(amountXof)),
-      expenseDate: expenseDate ? String(expenseDate) : undefined,
+    if (typeof category !== 'string' || category.trim().length < 2 ||
+        typeof description !== 'string' || !Number.isFinite(Number(amountXof)) ||
+        Number(amountXof) <= 0) throw new AppError(400, 'Dépense invalide.');
+    const params = { rid, category: category.trim(), description: description.trim(),
+      amountXof: Math.round(Number(amountXof)), expenseDate: expenseDate ? String(expenseDate) : undefined };
+    if (isPostgresMode()) return postgresRestaurantRepository.createExpense({
+      ...params, actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role,
     });
+    const id = restaurantRepository.createExpense(params);
+    recordAudit(getDb(), { actorUserId: auth.userId, actorEmail: auth.email,
+      actorRole: auth.role, restaurantId: rid, action: 'EXPENSE_CREATED',
+      targetType: 'EXPENSE', targetId: id,
+      details: `${params.amountXof} FCFA · ${params.category} · ${params.description}` });
+    return id;
+  }
+
+  async getOwnerReport(rid: string, fromInput: string, toInput: string) {
+    const validDate = (value: string) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) &&
+      !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
+    if (!validDate(fromInput) || !validDate(toInput) || fromInput > toInput)
+      throw new AppError(400, 'Période de rapport invalide.');
+    const fromDate = new Date(`${fromInput}T00:00:00.000Z`);
+    const toDate = new Date(`${toInput}T00:00:00.000Z`);
+    if ((toDate.getTime() - fromDate.getTime()) / 86400000 > 366)
+      throw new AppError(400, 'La période ne peut pas dépasser 367 jours.');
+    const toExclusive = new Date(toDate.getTime() + 86400000).toISOString().slice(0,10);
+    return isPostgresMode()
+      ? postgresRestaurantRepository.findOwnerReport(rid, fromInput, toExclusive)
+      : restaurantRepository.findOwnerReport(rid, fromInput, toExclusive);
+  }
+
+  async getOwnerAuditLogs(rid: string, fromInput: string, toInput: string, limitInput?: unknown) {
+    const validDate = (value: string) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) &&
+      !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
+    if (!validDate(fromInput) || !validDate(toInput) || fromInput > toInput)
+      throw new AppError(400, 'Période du journal invalide.');
+    const toDate = new Date(`${toInput}T00:00:00.000Z`);
+    const toExclusive = new Date(toDate.getTime() + 86400000).toISOString().slice(0,10);
+    const limit = Math.max(1, Math.min(500, Number(limitInput) || 300));
+    return isPostgresMode()
+      ? postgresRestaurantRepository.findOwnerAuditLogs(rid, fromInput, toExclusive, limit)
+      : restaurantRepository.findOwnerAuditLogs(rid, fromInput, toExclusive, limit);
   }
 
   async exportOrdersCsv(rid: string): Promise<string> {
