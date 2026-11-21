@@ -48,7 +48,7 @@ before(async () => {
     t.string('id').primary(); t.string('restaurant_id'); t.string('order_id');
     t.integer('amount_xof'); t.string('method'); t.string('status'); t.string('mode');
     t.string('reference'); t.string('idempotency_key'); t.string('created_by_user_id');
-    t.string('created_at'); t.unique(['restaurant_id', 'idempotency_key']);
+    t.string('refunded_at'); t.string('created_at'); t.unique(['restaurant_id', 'idempotency_key']);
   });
   await db.schema.createTable('audit_logs', t => {
     t.string('id').primary(); t.string('actor_user_id'); t.string('actor_email');
