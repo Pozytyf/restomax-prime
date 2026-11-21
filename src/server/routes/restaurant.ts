@@ -3,6 +3,7 @@ import {
   requireActiveRestaurant,
   requireAuth,
   requirePermission,
+  requireOwner,
 } from '../auth.ts';
 import { restaurantController } from '../controllers/restaurantController.ts';
 
@@ -213,12 +214,12 @@ restaurantRouter.get(
 );
 restaurantRouter.post(
   '/expenses',
-  requirePermission('finance:read'),
+  requireOwner,
   restaurantController.createExpense,
 );
 restaurantRouter.get(
   '/reports/export',
-  requirePermission('reports:read'),
+  requireOwner,
   restaurantController.exportOrdersCsv,
 );
 
