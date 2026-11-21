@@ -279,6 +279,18 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
+export function requireOwner(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) {
+  if (!req.auth || req.auth.role !== 'OWNER') {
+    res.status(403).json({ error: 'Accès réservé au propriétaire de l’établissement.' });
+    return;
+  }
+  next();
+}
+
 export function requireSuperAdmin(
   req: Request,
   res: Response,
