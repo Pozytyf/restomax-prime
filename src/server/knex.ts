@@ -1,5 +1,5 @@
 import knex, { type Knex } from 'knex';
-import knexConfig, { buildKnexConfig } from './db/knexfile.ts';
+import knexConfig, { buildKnexConfig, buildPostgresKnexConfig } from './db/knexfile.ts';
 import { AppError } from './services/errors.ts';
 
 let singletonKnex: Knex | null = null;
@@ -28,14 +28,11 @@ export function createMigrationKnex(): Knex {
 }
 
 function buildKnexConfigForMigration(connectionString: string): Knex.Config {
+  const config = buildPostgresKnexConfig(connectionString);
   return {
-    ...buildKnexConfig(),
-    client: 'pg',
-    connection: {
-      connectionString,
-      ssl: process.env.DATABASE_SSL === 'true' ? true : false,
-    },
+    ...config,
     pool: {
+      ...config.pool,
       min: 0,
       max: 2,
       acquireTimeoutMillis: 30_000,
@@ -54,8 +51,13 @@ export function setKnexInstance(instance: Knex): void {
   singletonKnex = instance;
 }
 
-export async function runKnexMigrations(instance: Knex = getKnex()) {
-  return instance.migrate.latest();
+export async function runKnexMigrations(instance?: Knex) {
+  const migrationKnex = instance ?? createMigrationKnex();
+  try {
+    return await migrationKnex.migrate.latest();
+  } finally {
+    if (!instance) await migrationKnex.destroy();
+  }
 }
 
 /**
