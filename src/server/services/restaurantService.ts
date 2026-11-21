@@ -1551,7 +1551,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
   }
 
   async getOwnerReport(rid: string, fromInput: string, toInput: string) {
-    const validDate = (value: string) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) &&
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
     if (!validDate(fromInput) || !validDate(toInput) || fromInput > toInput)
       throw new AppError(400, 'Période de rapport invalide.');
@@ -1566,7 +1566,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
   }
 
   async getOwnerAuditLogs(rid: string, fromInput: string, toInput: string, limitInput?: unknown) {
-    const validDate = (value: string) => /^\\d{4}-\\d{2}-\\d{2}$/.test(value) &&
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value) &&
       !Number.isNaN(new Date(`${value}T00:00:00.000Z`).getTime());
     if (!validDate(fromInput) || !validDate(toInput) || fromInput > toInput)
       throw new AppError(400, 'Période du journal invalide.');
