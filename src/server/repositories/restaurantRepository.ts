@@ -1506,14 +1506,14 @@ export class RestaurantRepository extends BaseRepository {
       FROM orders WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
       GROUP BY substr(created_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
     const dailyPayments = db.prepare(`SELECT substr(created_at,1,10) as day,SUM(amount_xof) as collected_xof
-      FROM payments WHERE restaurant_id=? AND status='PAID' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      FROM payments WHERE restaurant_id=? AND status IN ('PAID','REFUNDED') AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
       GROUP BY substr(created_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
     const dailyRefunds = db.prepare(`SELECT substr(refunded_at,1,10) as day,SUM(amount_xof) as refunded_xof
       FROM payments WHERE restaurant_id=? AND status='REFUNDED' AND refunded_at IS NOT NULL
       AND substr(refunded_at,1,10)>=? AND substr(refunded_at,1,10)<?
       GROUP BY substr(refunded_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
     const byMethod = db.prepare(`SELECT method,SUM(amount_xof) as amount_xof,COUNT(*) as count
-      FROM payments WHERE restaurant_id=? AND status='PAID' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      FROM payments WHERE restaurant_id=? AND status IN ('PAID','REFUNDED') AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
       GROUP BY method ORDER BY amount_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
     const topItems = db.prepare(`SELECT oi.name,SUM(oi.quantity) as quantity,SUM(oi.line_total_xof) as sales_xof
       FROM order_items oi JOIN orders o ON o.id=oi.order_id
