@@ -505,6 +505,13 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         lines,
       });
 
+      recordAudit(db, {
+        actorUserId: auth.userId, actorEmail: auth.email, actorRole: auth.role,
+        restaurantId: rid, action: discount > 0 ? 'ORDER_CREATED_WITH_DISCOUNT' : 'ORDER_CREATED',
+        targetType: 'ORDER', targetId: orderId,
+        details: `${orderNumber} · ${totalXof} FCFA · remise ${discount} FCFA`,
+      });
+
       deductionResult = restaurantRepository.deductStocksForOrderItems({
         rid,
         orderNumber,
@@ -588,7 +595,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       if (!valid.includes(String(status))) throw new AppError(400, 'Statut de commande invalide.');
       const allowed = auth.permissions.includes('kitchen:write') || auth.permissions.includes('orders:write') || auth.permissions.includes('pos:pay');
       if (!allowed) throw new AppError(403, 'Permission insuffisante.');
-      await postgresRestaurantRepository.updateOrderStatusTransaction(orderId, rid, String(status));
+      await postgresRestaurantRepository.updateOrderStatusTransaction({ orderId, rid, status: String(status), userId: auth.userId, actorEmail: auth.email, actorRole: auth.role });
       broadcastRestaurantEvent(rid, 'order:updated', { orderId, status });
       broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
       return;
@@ -626,6 +633,10 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
       String(status),
       order.table_id,
     );
+    recordAudit(getDb(), { actorUserId: auth.userId, actorEmail: auth.email,
+      actorRole: auth.role, restaurantId: rid,
+      action: status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATUS_CHANGED',
+      targetType: 'ORDER', targetId: orderId, details: `${order.order_number || orderId} · ${order.status} → ${String(status)}` });
 
     broadcastRestaurantEvent(rid, 'order:updated', { orderId, status });
     broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
@@ -1872,7 +1883,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
         subtotalXof, discountXof: discount, taxXof, totalXof,
         notes: String(notes || '').slice(0, 300),
         idempotencyKey: idempotencyKey ? String(idempotencyKey) : null,
-        userId: auth.userId, now, lines,
+        userId: auth.userId, actorEmail: auth.email, actorRole: auth.role, now, lines,
       });
     } catch (error) {
       if ((error as { code?: string })?.code === '23505' && idempotencyKey) {
