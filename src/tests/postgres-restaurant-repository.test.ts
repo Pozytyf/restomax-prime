@@ -113,6 +113,9 @@ test('several successive installments settle the invoice only on the final payme
 
   const duplicate = await repository.recordPaymentTransaction({ ...base, paymentId: 'pay_dup' });
   assert.equal(duplicate.deduplicated, true);
+  assert.equal(duplicate.payment.amountXof, 25);
+  assert.equal(duplicate.payment.method, 'CASH');
+  assert.equal(duplicate.payment.fullyPaid, false);
   await assert.rejects(repository.recordPaymentTransaction({ ...base, paymentId: 'pay_too_much',
     amountXof: 100, idempotencyKey: 'payment-too-much' }));
 
@@ -153,6 +156,43 @@ test('payment settlement reconciles a stale paid_xof counter from the payment le
   assert.equal((await db('orders').where({ id: 'order_stale' }).first())?.status, 'PAID');
   assert.equal(Number((await db('orders').where({ id: 'order_stale' }).first())?.paid_xof), 100);
   assert.equal((await db('dining_tables').where({ id: 'table_1' }).first())?.status, 'AVAILABLE');
+});
+
+test('POS returns old open invoices even when there are more than 100 newer closed orders', async () => {
+  const closed = Array.from({ length: 105 }, (_, index) => ({
+    id: `closed_${index}`, restaurant_id: 'rest_1', order_number: `CMD-C-${index}`,
+    order_type: 'TAKEAWAY', table_id: null, customer_name: 'Client', status: 'PAID',
+    subtotal_xof: 100, discount_xof: 0, tax_xof: 0, total_xof: 100, paid_xof: 100,
+    notes: '', created_at: `2026-11-21T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+    updated_at: '2026-11-21T00:00:00.000Z',
+  }));
+  await db('orders').insert(closed);
+  await db('orders').insert({ id: 'old_open_invoice', restaurant_id: 'rest_1', order_number: 'CMD-OLD',
+    order_type: 'TAKEAWAY', table_id: null, customer_name: 'Ancien client', status: 'SERVED',
+    subtotal_xof: 500, discount_xof: 0, tax_xof: 0, total_xof: 500, paid_xof: 100,
+    notes: '', created_at: '2026-11-01T00:00:00.000Z', updated_at: '2026-11-01T00:00:00.000Z' });
+  const orders = await repository.findOrdersWithItems('rest_1');
+  assert.ok(orders.some(order => order.id === 'old_open_invoice'));
+});
+
+test('refund recomputes the paid balance from the remaining payment ledger', async () => {
+  await db('orders').insert({ id: 'order_refund', restaurant_id: 'rest_1', order_number: 'CMD-REFUND',
+    order_type: 'TAKEAWAY', table_id: null, customer_name: 'Client', status: 'PAID',
+    subtotal_xof: 100, discount_xof: 0, tax_xof: 0, total_xof: 100, paid_xof: 100,
+    notes: '', created_at: '2026-11-20T00:06:00.000Z', updated_at: '2026-11-20T00:06:00.000Z' });
+  await db('payments').insert([
+    { id: 'refund_pay_60', restaurant_id: 'rest_1', order_id: 'order_refund', amount_xof: 60,
+      method: 'CASH', status: 'PAID', mode: 'TEST', reference: 'REF-60', idempotency_key: 'refund-60',
+      created_by_user_id: 'user_1', created_at: '2026-11-20T00:06:10.000Z' },
+    { id: 'refund_pay_40', restaurant_id: 'rest_1', order_id: 'order_refund', amount_xof: 40,
+      method: 'WAVE', status: 'PAID', mode: 'TEST', reference: 'REF-40', idempotency_key: 'refund-40',
+      created_by_user_id: 'user_1', created_at: '2026-11-20T00:06:20.000Z' },
+  ]);
+  await repository.refundPaymentTransaction({ paymentId: 'refund_pay_40', rid: 'rest_1',
+    userId: 'user_1', actorEmail: 'owner@example.ci', actorRole: 'OWNER' });
+  const order = await db('orders').where({ id: 'order_refund' }).first();
+  assert.equal(Number(order?.paid_xof), 60);
+  assert.equal(order?.status, 'SERVED');
 });
 
 test('a paid invoice cannot be reopened by a delayed kitchen status update', async () => {
