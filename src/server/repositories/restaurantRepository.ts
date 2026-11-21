@@ -1487,6 +1487,66 @@ export class RestaurantRepository extends BaseRepository {
     return id;
   }
 
+  findOwnerReport(rid: string, from: string, toExclusive: string) {
+    const db = getDb();
+    const sales = db.prepare(`
+      SELECT COUNT(*) FILTER (WHERE status <> 'CANCELLED') as orders_count,
+        COALESCE(SUM(total_xof) FILTER (WHERE status <> 'CANCELLED'),0) as gross_sales_xof,
+        COALESCE(SUM(discount_xof) FILTER (WHERE status <> 'CANCELLED'),0) as discounts_xof,
+        COUNT(*) FILTER (WHERE status='CANCELLED') as cancelled_count,
+        COALESCE(SUM(total_xof) FILTER (WHERE status='CANCELLED'),0) as cancelled_xof,
+        COALESCE(SUM(CASE WHEN status <> 'CANCELLED' THEN total_xof -
+          (SELECT COALESCE(SUM(p.amount_xof),0) FROM payments p WHERE p.order_id=orders.id AND p.restaurant_id=orders.restaurant_id AND p.status='PAID') ELSE 0 END),0) as outstanding_xof,
+        COALESCE(AVG(total_xof) FILTER (WHERE status <> 'CANCELLED'),0) as average_ticket_xof
+      FROM orders WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+    `).get(rid,from,toExclusive) as Record<string,number>;
+    const dailySales = db.prepare(`SELECT substr(created_at,1,10) as day,
+      COALESCE(SUM(total_xof) FILTER (WHERE status<>'CANCELLED'),0) as sales_xof,
+      COUNT(*) FILTER (WHERE status<>'CANCELLED') as orders_count
+      FROM orders WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      GROUP BY substr(created_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const dailyPayments = db.prepare(`SELECT substr(created_at,1,10) as day,SUM(amount_xof) as collected_xof
+      FROM payments WHERE restaurant_id=? AND status='PAID' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      GROUP BY substr(created_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const dailyRefunds = db.prepare(`SELECT substr(refunded_at,1,10) as day,SUM(amount_xof) as refunded_xof
+      FROM payments WHERE restaurant_id=? AND status='REFUNDED' AND refunded_at IS NOT NULL
+      AND substr(refunded_at,1,10)>=? AND substr(refunded_at,1,10)<?
+      GROUP BY substr(refunded_at,1,10) ORDER BY day`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const byMethod = db.prepare(`SELECT method,SUM(amount_xof) as amount_xof,COUNT(*) as count
+      FROM payments WHERE restaurant_id=? AND status='PAID' AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      GROUP BY method ORDER BY amount_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const topItems = db.prepare(`SELECT oi.name,SUM(oi.quantity) as quantity,SUM(oi.line_total_xof) as sales_xof
+      FROM order_items oi JOIN orders o ON o.id=oi.order_id
+      WHERE o.restaurant_id=? AND o.status<>'CANCELLED' AND substr(o.created_at,1,10)>=? AND substr(o.created_at,1,10)<?
+      GROUP BY oi.name ORDER BY sales_xof DESC LIMIT 10`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const employees = db.prepare(`SELECT o.created_by_user_id as user_id,
+      COALESCE(u.full_name,u.email,'Utilisateur supprimé') as actor,
+      COUNT(*) FILTER (WHERE o.status<>'CANCELLED') as orders_count,
+      COALESCE(SUM(o.total_xof) FILTER (WHERE o.status<>'CANCELLED'),0) as sales_xof,
+      COUNT(*) FILTER (WHERE o.status='CANCELLED') as cancelled_count
+      FROM orders o LEFT JOIN users u ON u.id=o.created_by_user_id
+      WHERE o.restaurant_id=? AND substr(o.created_at,1,10)>=? AND substr(o.created_at,1,10)<?
+      GROUP BY o.created_by_user_id,u.full_name,u.email ORDER BY sales_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
+    const expenses = db.prepare(`SELECT COALESCE(SUM(amount_xof),0) as total_xof,COUNT(*) as count
+      FROM expenses WHERE restaurant_id=? AND substr(expense_date,1,10)>=? AND substr(expense_date,1,10)<?`).get(rid,from,toExclusive) as {total_xof:number;count:number};
+    const collected = dailyPayments.reduce((n,row)=>n+Number(row.collected_xof||0),0);
+    const refunded = dailyRefunds.reduce((n,row)=>n+Number(row.refunded_xof||0),0);
+    return {from,to:toExclusive,summary:{ordersCount:Number(sales.orders_count||0),grossSalesXof:Number(sales.gross_sales_xof||0),
+      collectedXof:collected,refundsXof:refunded,netCollectedXof:collected-refunded,
+      discountsXof:Number(sales.discounts_xof||0),cancelledCount:Number(sales.cancelled_count||0),
+      cancelledXof:Number(sales.cancelled_xof||0),outstandingXof:Number(sales.outstanding_xof||0),
+      averageTicketXof:Math.round(Number(sales.average_ticket_xof||0)),expensesXof:Number(expenses.total_xof||0)},
+      dailySales,dailyPayments,dailyRefunds,byMethod,topItems,employees,expenses};
+  }
+
+  findOwnerAuditLogs(rid: string, from: string, toExclusive: string, limit = 300) {
+    return getDb().prepare(`SELECT id,actor_user_id as actorUserId,actor_email as actorEmail,
+      actor_role as actorRole,action,target_type as targetType,target_id as targetId,
+      details,created_at as createdAt FROM audit_logs
+      WHERE restaurant_id=? AND substr(created_at,1,10)>=? AND substr(created_at,1,10)<?
+      ORDER BY created_at DESC LIMIT ?`).all(rid,from,toExclusive,Math.max(1,Math.min(500,limit)));
+  }
+
   findOrdersForCsvExport(rid: string) {
     const db = getDb();
     return db
