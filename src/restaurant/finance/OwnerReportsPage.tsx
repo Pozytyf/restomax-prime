@@ -36,6 +36,21 @@ function rangeFor(date: string, mode: Mode) {
   return {from:dateString(start),to:dateString(end)};
 }
 
+function previousRangeFor(date:string,mode:Mode) {
+  const current=rangeFor(date,mode);
+  const start=new Date(current.from+'T00:00:00.000Z');
+  const end=new Date(current.to+'T00:00:00.000Z');
+  const days=Math.round((end.getTime()-start.getTime())/86400000)+1;
+  const prevEnd=new Date(start.getTime()-86400000);
+  const prevStart=new Date(prevEnd.getTime()-(days-1)*86400000);
+  return {from:dateString(prevStart),to:dateString(prevEnd)};
+}
+function changeLabel(current:number,previous:number) {
+  if (!previous) return current ? '+100%' : '0%';
+  const pct=((current-previous)/Math.abs(previous))*100;
+  return `${pct>0?'+':''}${pct.toFixed(1)}%`;
+}
+
 function Stat({label,value,accent}:{label:string;value:string;accent?:string}) {
   return <div className="rounded-xl border border-[var(--rm-border)] bg-[var(--rm-surface)] p-4 min-w-0">
     <p className="text-xs text-[var(--rm-ink-muted)]">{label}</p>
@@ -50,6 +65,7 @@ export function OwnerReportsPage() {
   const [tab,setTab] = useState<'reports'|'audit'>('reports');
   const [report,setReport] = useState<Report|null>(null);
   const [calendarReport,setCalendarReport] = useState<Report|null>(null);
+  const [previousReport,setPreviousReport] = useState<Report|null>(null);
   const [audit,setAudit] = useState<AuditRow[]>([]);
   const [loading,setLoading] = useState(false);
   const [error,setError] = useState('');
@@ -64,12 +80,14 @@ export function OwnerReportsPage() {
     setLoading(true); setError('');
     try {
       const q = (r:{from:string;to:string}) => `from=${encodeURIComponent(r.from)}&to=${encodeURIComponent(r.to)}`;
-      const [r,calendar,a] = await Promise.all([
+      const previousRange=previousRangeFor(selectedDate,mode);
+      const [r,previous,calendar,a] = await Promise.all([
         apiFetch<Report>(`/api/restaurant/owner/reports?${q(activeRange)}`),
+        apiFetch<Report>(`/api/restaurant/owner/reports?${q(previousRange)}`),
         apiFetch<Report>(`/api/restaurant/owner/reports?${q(calendarRange)}`),
         apiFetch<{logs:AuditRow[]}>(`/api/restaurant/owner/audit?${q(calendarRange)}&limit=300`),
       ]);
-      setReport(r); setCalendarReport(calendar); setAudit(a.logs||[]);
+      setReport(r); setPreviousReport(previous); setCalendarReport(calendar); setAudit(a.logs||[]);
     } catch(e) { setError(e instanceof Error ? e.message : 'Impossible de charger les rapports.'); }
     finally { setLoading(false); }
   },[activeRange,calendarRange]);
@@ -84,7 +102,7 @@ export function OwnerReportsPage() {
   const calendarCells = [...Array(firstWeekday).fill(null),...Array.from({length:daysInMonth},(_,i)=>i+1)];
   while(calendarCells.length%7) calendarCells.push(null);
   const shiftMonth = (delta:number) => {
-    const d=new Date(Date.UTC(year,monthNo-1+delta,1)); setMonth(dateString(d).slice(0,7));
+    const d=new Date(Date.UTC(year,monthNo-1+delta,1)); const next=dateString(d); setMonth(next.slice(0,7)); setSelectedDate(next);
   };
   const exportAudit = () => {
     const header=['Date','Auteur','Rôle','Action','Cible','Détails'];
@@ -138,6 +156,13 @@ export function OwnerReportsPage() {
           <button onClick={load} className="ml-auto px-3 py-2 rounded-lg border border-[var(--rm-border)] text-sm">Actualiser</button>
         </div>
         {loading&&!report ? <p className="p-8 text-center text-sm">Chargement des données…</p> : report && <>
+          {previousReport && <section className="rounded-xl border border-[var(--rm-border)] bg-[var(--rm-surface)] p-4">
+            <h3 className="font-bold text-sm mb-3">Évolution par rapport à la période précédente</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <div><span className="text-[var(--rm-ink-muted)]">Ventes</span><strong className="block">{changeLabel(report.summary.grossSalesXof,previousReport.summary.grossSalesXof)} <span className="font-normal text-[var(--rm-ink-muted)]">({money(previousReport.summary.grossSalesXof)} auparavant)</span></strong></div>
+              <div><span className="text-[var(--rm-ink-muted)]">Encaissements</span><strong className="block">{changeLabel(report.summary.collectedXof,previousReport.summary.collectedXof)} <span className="font-normal text-[var(--rm-ink-muted)]">({money(previousReport.summary.collectedXof)} auparavant)</span></strong></div>
+            </div>
+          </section>}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
             <Stat label="Ventes réalisées" value={money(report.summary.grossSalesXof)}/>
             <Stat label="Encaissements reçus" value={money(report.summary.collectedXof)} accent="text-teal-600"/>
