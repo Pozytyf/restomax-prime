@@ -28,23 +28,35 @@ const backendOnlyTables = [
 export async function up(knex: Knex): Promise<void> {
   if (knex.client.config.client !== 'pg') return;
 
+  // Supabase API roles are not created by Neon. Preserve the hardening when
+  // those roles exist, but make a clean standalone PostgreSQL install valid.
+  const roleResult = await knex.raw(
+    "SELECT rolname FROM pg_roles WHERE rolname IN ('anon', 'authenticated') ORDER BY rolname",
+  );
+  const roles = (roleResult.rows || []).map((row: { rolname: string }) => row.rolname);
+  if (roles.length === 0) return;
+  const roleSql = roles.join(', ');
+
   await knex.raw(
-    'REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM anon, authenticated',
+    `REVOKE TRUNCATE ON ALL TABLES IN SCHEMA public FROM ${roleSql}`,
   );
   await knex.raw(
-    'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated',
+    `REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM ${roleSql}`,
   );
   await knex.raw(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated',
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM ${roleSql}`,
   );
   await knex.raw(
-    'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated',
+    `ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM ${roleSql}`,
   );
 
   for (const table of backendOnlyTables) {
-    await knex.raw(
-      `REVOKE ALL PRIVILEGES ON TABLE public.${table} FROM anon, authenticated`,
-    );
+    const exists = await knex.raw('SELECT to_regclass(?) AS relation', [`public.${table}`]);
+    if (exists.rows?.[0]?.relation) {
+      await knex.raw(
+        `REVOKE ALL PRIVILEGES ON TABLE public.${table} FROM ${roleSql}`,
+      );
+    }
   }
 }
 
