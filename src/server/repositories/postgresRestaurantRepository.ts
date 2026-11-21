@@ -778,7 +778,7 @@ export class PostgresRestaurantRepository {
   }
 
   async findOwnerReport(rid: string, from: string, toExclusive: string) {
-    const [sales, dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses] = await Promise.all([
+    const [sales, dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses, cashiers] = await Promise.all([
       this.db('orders as o').where('o.restaurant_id', rid)
         .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date", [from])
         .whereRaw("(o.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date", [toExclusive])
@@ -786,6 +786,7 @@ export class PostgresRestaurantRepository {
           this.db.raw("COUNT(*) FILTER (WHERE o.status <> 'CANCELLED')::int as orders_count"),
           this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as gross_sales_xof"),
           this.db.raw("COALESCE(SUM(o.discount_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as discounts_xof"),
+          this.db.raw("COALESCE(SUM(o.tax_xof) FILTER (WHERE o.status <> 'CANCELLED'),0) as tax_xof"),
           this.db.raw("COUNT(*) FILTER (WHERE o.status = 'CANCELLED')::int as cancelled_count"),
           this.db.raw("COALESCE(SUM(o.total_xof) FILTER (WHERE o.status = 'CANCELLED'),0) as cancelled_xof"),
           this.db.raw("COALESCE(SUM(o.total_xof - COALESCE((SELECT SUM(p2.amount_xof) FROM payments p2 WHERE p2.order_id=o.id AND p2.restaurant_id=o.restaurant_id AND p2.status='PAID'),0)) FILTER (WHERE o.status <> 'CANCELLED'),0) as outstanding_xof"),
@@ -834,6 +835,13 @@ export class PostgresRestaurantRepository {
       this.db('expenses').where({restaurant_id:rid})
         .whereRaw("LEFT(expense_date,10) >= ?",[from]).whereRaw("LEFT(expense_date,10) < ?",[toExclusive])
         .select(this.db.raw('COALESCE(SUM(amount_xof),0) as total_xof'),this.db.raw('COUNT(*)::int as count')).first(),
+      this.db('payments as p').leftJoin('users as u','u.id','p.created_by_user_id')
+        .where('p.restaurant_id',rid).whereIn('p.status',['PAID','REFUNDED'])
+        .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date >= ?::date",[from])
+        .whereRaw("(p.created_at::timestamptz AT TIME ZONE 'Africa/Abidjan')::date < ?::date",[toExclusive])
+        .select('p.created_by_user_id as user_id',this.db.raw("COALESCE(u.full_name,u.email,'Utilisateur supprimé') as actor"),
+          this.db.raw('COUNT(*)::int as payments_count'),this.db.raw('COALESCE(SUM(p.amount_xof),0) as collected_xof'))
+        .groupBy('p.created_by_user_id','u.full_name','u.email').orderBy('collected_xof','desc'),
     ]);
     const salesData = sales as unknown as Record<string, unknown>;
     const expenseData = expenses as unknown as Record<string, unknown>;
