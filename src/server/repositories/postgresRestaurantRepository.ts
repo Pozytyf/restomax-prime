@@ -154,15 +154,27 @@ export class PostgresRestaurantRepository {
   }
 
   async findOrdersWithItems(rid: string) {
-    const orders = await this.db('orders as o').leftJoin('dining_tables as t', 't.id', 'o.table_id')
-      .where('o.restaurant_id', rid).select('o.id', { restaurantId: 'o.restaurant_id' },
+    const selectOrders = (query: Knex.QueryBuilder) => query
+      .leftJoin('dining_tables as t', 't.id', 'o.table_id')
+      .where('o.restaurant_id', rid)
+      .select('o.id', { restaurantId: 'o.restaurant_id' },
         { orderNumber: 'o.order_number' }, { orderType: 'o.order_type' },
         { tableId: 'o.table_id' }, { tableLabel: 't.label' }, { tableZone: 't.zone' },
         { customerName: 'o.customer_name' }, 'o.status', { subtotalXof: 'o.subtotal_xof' },
         { discountXof: 'o.discount_xof' }, { taxXof: 'o.tax_xof' }, { totalXof: 'o.total_xof' },
         { paidXof: 'o.paid_xof' }, 'o.notes', { createdByUserId: 'o.created_by_user_id' },
-        { createdAt: 'o.created_at' }, { updatedAt: 'o.updated_at' })
-      .orderBy('o.created_at', 'desc').limit(100);
+        { createdAt: 'o.created_at' }, { updatedAt: 'o.updated_at' });
+
+    // Never hide an unpaid invoice just because the restaurant has more than
+    // 100 newer completed orders. Keep every active bill and cap only history.
+    const [activeOrders, recentClosedOrders] = await Promise.all([
+      selectOrders(this.db('orders as o').queryBuilder())
+        .whereNotIn('o.status', ['PAID', 'CANCELLED']).orderBy('o.created_at', 'desc'),
+      selectOrders(this.db('orders as o').queryBuilder())
+        .whereIn('o.status', ['PAID', 'CANCELLED']).orderBy('o.created_at', 'desc').limit(100),
+    ]);
+    const orders = [...activeOrders, ...recentClosedOrders]
+      .sort((a, b) => new Date(String(b.createdAt)).getTime() - new Date(String(a.createdAt)).getTime());
     const ids = orders.map(o => o.id);
     const lines = ids.length ? await this.db('order_items').whereIn('order_id', ids)
       .select('id', { orderId: 'order_id' }, { menuItemId: 'menu_item_id' }, 'name', 'station',
