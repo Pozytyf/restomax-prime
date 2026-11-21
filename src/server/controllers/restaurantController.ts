@@ -430,6 +430,28 @@ export const restaurantController = {
     }
   },
 
+  async getOwnerReport(req: Request, res: Response) {
+    try {
+      const report = await restaurantService.getOwnerReport(
+        req.auth!.restaurantId!, String(req.query.from || ''), String(req.query.to || ''),
+      );
+      res.json(report);
+    } catch (err) {
+      handleControllerError(res, err, 'Erreur chargement du rapport propriétaire.');
+    }
+  },
+
+  async getOwnerAuditLogs(req: Request, res: Response) {
+    try {
+      const logs = await restaurantService.getOwnerAuditLogs(
+        req.auth!.restaurantId!, String(req.query.from || ''), String(req.query.to || ''), req.query.limit,
+      );
+      res.json({ logs });
+    } catch (err) {
+      handleControllerError(res, err, 'Erreur chargement du journal d’activité.');
+    }
+  },
+
   async getFinance(req: Request, res: Response) {
     try {
       const data = await restaurantService.getFinanceSummary(req.auth!.restaurantId!);
@@ -442,7 +464,7 @@ export const restaurantController = {
   async createExpense(req: Request, res: Response) {
     try {
       const id = await restaurantService.createExpense(
-        req.auth!.restaurantId!,
+        req.auth!,
         req.body || {},
       );
       res.status(201).json({ id });
