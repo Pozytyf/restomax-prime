@@ -8,7 +8,8 @@ export const restaurantController = {
     try {
       const data = await restaurantService.getDashboard(req.auth!.restaurantId!);
       if (req.auth!.role !== 'OWNER') {
-        const { staffActivity: _ownerOnlyActivity, ...operationalDashboard } = data;
+        const { staffActivity, ...operationalDashboard } = data;
+        void staffActivity;
         res.json(operationalDashboard);
         return;
       }
