@@ -161,6 +161,9 @@ test('3. Owner reports are private, manager keeps operational finance rights, au
   const managerToken = managerLogin.data.token as string;
   assert.equal((await req('/api/restaurant/finance', { token: managerToken })).status, 200);
   assert.equal((await req('/api/restaurant/payments', { token: managerToken })).status, 200);
+  const managerDashboard = await req('/api/restaurant/dashboard', { token: managerToken });
+  assert.equal(managerDashboard.status, 200);
+  assert.equal('staffActivity' in managerDashboard.data, false);
   assert.equal((await req('/api/restaurant/owner/reports?from=2026-01-01&to=2026-12-31', { token: managerToken })).status, 403);
   assert.equal((await req('/api/restaurant/owner/audit?from=2026-01-01&to=2026-12-31', { token: managerToken })).status, 403);
   assert.equal((await req('/api/restaurant/reports/export', { token: managerToken })).status, 403);
