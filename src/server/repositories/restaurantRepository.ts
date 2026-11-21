@@ -1493,6 +1493,7 @@ export class RestaurantRepository extends BaseRepository {
       SELECT COUNT(*) FILTER (WHERE status <> 'CANCELLED') as orders_count,
         COALESCE(SUM(total_xof) FILTER (WHERE status <> 'CANCELLED'),0) as gross_sales_xof,
         COALESCE(SUM(discount_xof) FILTER (WHERE status <> 'CANCELLED'),0) as discounts_xof,
+        COALESCE(SUM(tax_xof) FILTER (WHERE status <> 'CANCELLED'),0) as tax_xof,
         COUNT(*) FILTER (WHERE status='CANCELLED') as cancelled_count,
         COALESCE(SUM(total_xof) FILTER (WHERE status='CANCELLED'),0) as cancelled_xof,
         COALESCE(SUM(CASE WHEN status <> 'CANCELLED' THEN total_xof -
@@ -1529,14 +1530,21 @@ export class RestaurantRepository extends BaseRepository {
       GROUP BY o.created_by_user_id,u.full_name,u.email ORDER BY sales_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
     const expenses = db.prepare(`SELECT COALESCE(SUM(amount_xof),0) as total_xof,COUNT(*) as count
       FROM expenses WHERE restaurant_id=? AND substr(expense_date,1,10)>=? AND substr(expense_date,1,10)<?`).get(rid,from,toExclusive) as {total_xof:number;count:number};
+    const cashiers = db.prepare(`SELECT p.created_by_user_id as user_id,
+      COALESCE(u.full_name,u.email,'Utilisateur supprimé') as actor,
+      COUNT(*) as payments_count,COALESCE(SUM(p.amount_xof),0) as collected_xof
+      FROM payments p LEFT JOIN users u ON u.id=p.created_by_user_id
+      WHERE p.restaurant_id=? AND p.status IN ('PAID','REFUNDED')
+      AND substr(p.created_at,1,10)>=? AND substr(p.created_at,1,10)<?
+      GROUP BY p.created_by_user_id,u.full_name,u.email ORDER BY collected_xof DESC`).all(rid,from,toExclusive) as Array<Record<string,unknown>>;
     const collected = dailyPayments.reduce((n,row)=>n+Number(row.collected_xof||0),0);
     const refunded = dailyRefunds.reduce((n,row)=>n+Number(row.refunded_xof||0),0);
     return {from,to:toExclusive,summary:{ordersCount:Number(sales.orders_count||0),grossSalesXof:Number(sales.gross_sales_xof||0),
       collectedXof:collected,refundsXof:refunded,netCollectedXof:collected-refunded,
       discountsXof:Number(sales.discounts_xof||0),cancelledCount:Number(sales.cancelled_count||0),
       cancelledXof:Number(sales.cancelled_xof||0),outstandingXof:Number(sales.outstanding_xof||0),
-      averageTicketXof:Math.round(Number(sales.average_ticket_xof||0)),expensesXof:Number(expenses.total_xof||0)},
-      dailySales,dailyPayments,dailyRefunds,byMethod,topItems,employees,expenses};
+      averageTicketXof:Math.round(Number(sales.average_ticket_xof||0)),expensesXof:Number(expenses.total_xof||0),taxXof:Number(sales.tax_xof||0)},
+      dailySales,dailyPayments,dailyRefunds,byMethod,topItems,employees,expenses,cashiers};
   }
 
   findOwnerAuditLogs(rid: string, from: string, toExclusive: string, limit = 300) {
