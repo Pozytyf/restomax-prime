@@ -153,18 +153,50 @@ test('2. RBAC bypass prevention & server-side pricing', async () => {
   assert.equal(orderRes.data.order.totalXof, 25000);
 });
 
-test('3. Payment double-charge & double-refund prevention', async () => {
+test('3. Owner reports are private, manager keeps operational finance rights, audit is immutable', async () => {
+  const managerLogin = await req('/api/auth/login', {
+    method: 'POST',
+    body: { email: 'manager@lesillage.ci', password: 'RestoMax2026!' },
+  });
+  const managerToken = managerLogin.data.token as string;
+  assert.equal((await req('/api/restaurant/finance', { token: managerToken })).status, 200);
+  assert.equal((await req('/api/restaurant/payments', { token: managerToken })).status, 200);
+  assert.equal((await req('/api/restaurant/owner/reports?from=2026-01-01&to=2026-12-31', { token: managerToken })).status, 403);
+  assert.equal((await req('/api/restaurant/owner/audit?from=2026-01-01&to=2026-12-31', { token: managerToken })).status, 403);
+  assert.equal((await req('/api/restaurant/reports/export', { token: managerToken })).status, 403);
+  assert.equal((await req('/api/restaurant/expenses', { method: 'POST', token: managerToken,
+    body: { category: 'Test', description: 'Interdit au manager', amountXof: 1000 } })).status, 403);
+
+  const ownerLogin = await req('/api/auth/login', {
+    method: 'POST',
+    body: { email: 'proprietaire@lesillage.ci', password: 'RestoMax2026!' },
+  });
+  const ownerToken = ownerLogin.data.token as string;
+  const report = await req('/api/restaurant/owner/reports?from=2026-01-01&to=2026-12-31', { token: ownerToken });
+  assert.equal(report.status, 200);
+  assert.ok(report.data.summary);
+  assert.ok(Array.isArray(report.data.dailySales));
+  const audit = await req('/api/restaurant/owner/audit?from=2026-01-01&to=2026-12-31', { token: ownerToken });
+  assert.equal(audit.status, 200);
+  assert.ok(Array.isArray(audit.data.logs));
+
+  const db = getDb();
+  assert.throws(() => db.prepare('UPDATE audit_logs SET details = ? WHERE id = ?').run('tampered', 'aud_2'), /append-only/);
+  assert.throws(() => db.prepare('DELETE FROM audit_logs WHERE id = ?').run('aud_2'), /append-only/);
+});
+
+test('4. Payment double-charge & double-refund prevention', async () => {
   const loginCashier = await req('/api/auth/login', {
     method: 'POST',
     body: { email: 'caisse@lesillage.ci', password: 'RestoMax2026!' },
   });
   const cashierToken = loginCashier.data.token as string;
 
-  const loginOwner = await req('/api/auth/login', {
+  const loginManager = await req('/api/auth/login', {
     method: 'POST',
-    body: { email: 'proprietaire@lesillage.ci', password: 'RestoMax2026!' },
+    body: { email: 'manager@lesillage.ci', password: 'RestoMax2026!' },
   });
-  const ownerToken = loginOwner.data.token as string;
+  const managerToken = loginManager.data.token as string;
 
   // Create order of 3000 FCFA (Bissap)
   const ord = await req('/api/restaurant/orders', {
@@ -198,19 +230,19 @@ test('3. Payment double-charge & double-refund prevention', async () => {
   // Refund once -> 200 OK
   const ref1 = await req(`/api/restaurant/payments/${paymentId}/refund`, {
     method: 'POST',
-    token: ownerToken,
+    token: managerToken,
   });
   assert.equal(ref1.status, 200);
 
   // Attempt double refund -> 409 Conflict
   const ref2 = await req(`/api/restaurant/payments/${paymentId}/refund`, {
     method: 'POST',
-    token: ownerToken,
+    token: managerToken,
   });
   assert.equal(ref2.status, 409);
 });
 
-test('4. QR Ordering, QR Revocation & Stock movement', async () => {
+test('5. QR Ordering, QR Revocation & Stock movement', async () => {
   const loginOwner = await req('/api/auth/login', {
     method: 'POST',
     body: { email: 'proprietaire@lesillage.ci', password: 'RestoMax2026!' },
@@ -259,7 +291,7 @@ test('4. QR Ordering, QR Revocation & Stock movement', async () => {
   assert.equal(stkMove.data.quantity, 13.8);
 });
 
-test('5. Session revocation & Restaurant suspension block old tokens', async () => {
+test('6. Session revocation & Restaurant suspension block old tokens', async () => {
   const loginSa = await req('/api/auth/login', {
     method: 'POST',
     body: { email: 'superadmin@restomax.ci', password: 'RestoMax2026!' },
@@ -298,7 +330,7 @@ test('5. Session revocation & Restaurant suspension block old tokens', async () 
   assert.equal(saAfterLogout.status, 401);
 });
 
-test('6. Knex migration (tenants & users) + better-sqlite3 multi-tenant isolation', async () => {
+test('7. Knex migration (tenants & users) + better-sqlite3 multi-tenant isolation', async () => {
   assert.equal(knexConfig.development.client, 'better-sqlite3');
   assert.equal(knexConfig.development.pool?.min, 1);
   assert.equal(knexConfig.development.pool?.max, 5);
