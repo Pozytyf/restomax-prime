@@ -170,7 +170,7 @@ export class PostgresRestaurantRepository {
     const [activeOrders, recentClosedOrders] = await Promise.all([
       selectOrders()
         .whereNotIn('o.status', ['PAID', 'CANCELLED']).orderBy('o.created_at', 'desc'),
-      selectOrders(this.db('orders as o').queryBuilder())
+      selectOrders()
         .whereIn('o.status', ['PAID', 'CANCELLED']).orderBy('o.created_at', 'desc').limit(100),
     ]);
     const orders = [...activeOrders, ...recentClosedOrders]
