@@ -667,14 +667,13 @@ export class RestaurantRepository extends BaseRepository {
 
   findPaymentByIdempotencyKey(rid: string, key: string) {
     const db = getDb();
-    return db
-      .prepare(
-        `SELECT p.id, p.order_id as orderId, p.amount_xof as amountXof,
-                p.method, p.mode, p.reference, p.status, o.status as orderStatus
-         FROM payments p JOIN orders o ON o.id = p.order_id
-         WHERE p.restaurant_id = ? AND p.idempotency_key = ?`,
-      )
-      .get(rid, key);
+    const row = db.prepare(
+      `SELECT p.id, p.order_id as orderId, p.amount_xof as amountXof,
+              p.method, p.mode, p.reference, p.status, o.status as orderStatus
+       FROM payments p JOIN orders o ON o.id = p.order_id
+       WHERE p.restaurant_id = ? AND p.idempotency_key = ?`,
+    ).get(rid, key) as Record<string, unknown> | undefined;
+    return row ? { ...row, fullyPaid: row.orderStatus === 'PAID' } : undefined;
   }
 
   insertPaymentAndSettleOrder(params: {
@@ -741,15 +740,20 @@ export class RestaurantRepository extends BaseRepository {
       | undefined;
   }
 
-  markPaymentRefunded(paymentId: string, rid: string, orderId: string, amountXof: number) {
+  markPaymentRefunded(paymentId: string, rid: string, orderId: string, _amountXof: number) {
     const db = getDb();
     db.prepare(
       `UPDATE payments SET status = 'REFUNDED' WHERE id = ? AND restaurant_id = ?`,
     ).run(paymentId, rid);
-
+    const paidRow = db.prepare(
+      `SELECT COALESCE(SUM(amount_xof), 0) as paid_total FROM payments
+       WHERE restaurant_id = ? AND order_id = ? AND status = 'PAID'`,
+    ).get(rid, orderId) as { paid_total: number };
     db.prepare(
-      `UPDATE orders SET paid_xof = MAX(0, paid_xof - ?), status = 'SERVED', updated_at = ? WHERE id = ? AND restaurant_id = ?`,
-    ).run(amountXof, new Date().toISOString(), orderId, rid);
+      `UPDATE orders SET paid_xof = ?,
+       status = CASE WHEN status = 'PAID' AND ? < total_xof THEN 'SERVED' ELSE status END,
+       updated_at = ? WHERE id = ? AND restaurant_id = ?`,
+    ).run(Number(paidRow.paid_total || 0), Number(paidRow.paid_total || 0), new Date().toISOString(), orderId, rid);
   }
 
   findTablesWithQrAndActiveOrder(rid: string) {
