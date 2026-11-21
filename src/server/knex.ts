@@ -14,6 +14,35 @@ export function createKnexInstance(dbPath?: string): Knex {
   return knex(config);
 }
 
+/**
+ * Migrations prefer the Neon direct endpoint (DATABASE_MIGRATION_URL).
+ * Runtime queries continue to use DATABASE_URL, which should be pooled.
+ */
+export function createMigrationKnex(): Knex {
+  const client = (process.env.DATABASE_CLIENT || 'sqlite').toLowerCase();
+  const migrationUrl = process.env.DATABASE_MIGRATION_URL || process.env.DATABASE_URL || '';
+  if (['pg', 'postgres', 'postgresql'].includes(client) && migrationUrl) {
+    return knex(buildKnexConfigForMigration(migrationUrl));
+  }
+  return createKnexInstance();
+}
+
+function buildKnexConfigForMigration(connectionString: string): Knex.Config {
+  return {
+    ...buildKnexConfig(),
+    client: 'pg',
+    connection: {
+      connectionString,
+      ssl: process.env.DATABASE_SSL === 'true' ? true : false,
+    },
+    pool: {
+      min: 0,
+      max: 2,
+      acquireTimeoutMillis: 30_000,
+    },
+  };
+}
+
 export function getKnex(): Knex {
   if (!singletonKnex) {
     singletonKnex = createKnexInstance();
