@@ -581,7 +581,7 @@ export class PostgresRestaurantRepository {
     orderId: string; rid: string; orderNumber: string; orderType: string;
     tableId: string | null; customerName: string; subtotalXof: number;
     discountXof: number; taxXof: number; totalXof: number; notes: string;
-    idempotencyKey: string | null; userId: string; actorEmail: string; actorRole: string; now: string;
+    idempotencyKey: string | null; userId: string; actorEmail?: string; actorRole?: string; now: string;
     lines: Array<{ id: string; menuItemId: string; name: string; station: string;
       unitPriceXof: number; optionsSummary: string; optionsDeltaXof: number;
       quantity: number; lineTotalXof: number; notes: string }>;
@@ -605,7 +605,7 @@ export class PostgresRestaurantRepository {
       if (params.tableId) await trx('dining_tables')
         .where({ id: params.tableId, restaurant_id: params.rid }).update({ status: 'OCCUPIED' });
       await this.recordAudit({
-        actorUserId: params.userId, actorEmail: params.actorEmail, actorRole: params.actorRole,
+        actorUserId: params.userId, actorEmail: params.actorEmail || 'system@restomax.local', actorRole: params.actorRole || 'SYSTEM',
         restaurantId: params.rid, action: params.discountXof > 0 ? 'ORDER_CREATED_WITH_DISCOUNT' : 'ORDER_CREATED',
         targetType: 'ORDER', targetId: params.orderId,
         details: `${params.orderNumber} · ${params.totalXof} FCFA · remise ${params.discountXof} FCFA`,
@@ -664,8 +664,11 @@ export class PostgresRestaurantRepository {
     });
   }
 
-  async updateOrderStatusTransaction(params: { orderId: string; rid: string; status: string; userId: string; actorEmail: string; actorRole: string }) {
-    const { orderId, rid, status } = params;
+  async updateOrderStatusTransaction(params: { orderId: string; rid: string; status: string; userId?: string; actorEmail?: string; actorRole?: string } | string, ridArg?: string, statusArg?: string) {
+    const details = typeof params === 'string'
+      ? { orderId: params, rid: String(ridArg || ''), status: String(statusArg || ''), userId: undefined, actorEmail: 'system@restomax.local', actorRole: 'SYSTEM' }
+      : { ...params, actorEmail: params.actorEmail || 'system@restomax.local', actorRole: params.actorRole || 'SYSTEM' };
+    const { orderId, rid, status } = details;
     return this.db.transaction(async trx => {
       const order = await trx('orders').select('id', 'table_id', 'status', 'order_number')
         .where({ id: orderId, restaurant_id: rid }).forUpdate().first();
@@ -680,8 +683,8 @@ export class PostgresRestaurantRepository {
       else if (status === 'READY' || status === 'SERVED') await trx('order_items').where({ order_id: orderId }).update({ prep_status: status });
       else if (status === 'CANCELLED' && order.table_id) await trx('dining_tables')
         .where({ id: order.table_id, restaurant_id: rid }).update({ status: 'AVAILABLE' });
-      await this.recordAudit({ actorUserId: params.userId, actorEmail: params.actorEmail,
-        actorRole: params.actorRole, restaurantId: rid,
+      await this.recordAudit({ actorUserId: details.userId || null, actorEmail: details.actorEmail,
+        actorRole: details.actorRole, restaurantId: rid,
         action: status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATUS_CHANGED',
         targetType: 'ORDER', targetId: orderId,
         details: `${order.order_number} · ${order.status} → ${status}` }, trx);
@@ -832,16 +835,18 @@ export class PostgresRestaurantRepository {
         .whereRaw("LEFT(expense_date,10) >= ?",[from]).whereRaw("LEFT(expense_date,10) < ?",[toExclusive])
         .select(this.db.raw('COALESCE(SUM(amount_xof),0) as total_xof'),this.db.raw('COUNT(*)::int as count')).first(),
     ]);
+    const salesData = sales as unknown as Record<string, unknown>;
+    const expenseData = expenses as unknown as Record<string, unknown>;
     const paymentsTotal = dailyPayments.reduce((n: number, row: any) => n + Number(row.collected_xof || 0), 0);
     const refundsTotal = dailyRefunds.reduce((n: number, row: any) => n + Number(row.refunded_xof || 0), 0);
-    const expenseTotal = Number(expenses?.total_xof || 0);
+    const expenseTotal = Number(expenseData?.total_xof || 0);
     return {
       from, to: toExclusive,
-      summary: { ordersCount:Number(sales?.orders_count||0), grossSalesXof:Number(sales?.gross_sales_xof||0),
+      summary: { ordersCount:Number(salesData?.orders_count||0), grossSalesXof:Number(salesData?.gross_sales_xof||0),
         collectedXof:paymentsTotal, refundsXof:refundsTotal, netCollectedXof:paymentsTotal-refundsTotal,
-        discountsXof:Number(sales?.discounts_xof||0), cancelledCount:Number(sales?.cancelled_count||0),
-        cancelledXof:Number(sales?.cancelled_xof||0), outstandingXof:Number(sales?.outstanding_xof||0),
-        averageTicketXof:Math.round(Number(sales?.average_ticket_xof||0)), expensesXof:expenseTotal },
+        discountsXof:Number(salesData?.discounts_xof||0), cancelledCount:Number(salesData?.cancelled_count||0),
+        cancelledXof:Number(salesData?.cancelled_xof||0), outstandingXof:Number(salesData?.outstanding_xof||0),
+        averageTicketXof:Math.round(Number(salesData?.average_ticket_xof||0)), expensesXof:expenseTotal },
       dailySales, dailyPayments, dailyRefunds, byMethod, topItems, employees, expenses,
     };
   }
