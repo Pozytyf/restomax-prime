@@ -636,7 +636,7 @@ export class RestaurantService extends BaseService<RestaurantRepository> {
     recordAudit(getDb(), { actorUserId: auth.userId, actorEmail: auth.email,
       actorRole: auth.role, restaurantId: rid,
       action: status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ORDER_STATUS_CHANGED',
-      targetType: 'ORDER', targetId: orderId, details: `${order.order_number || orderId} · ${order.status} → ${String(status)}` });
+      targetType: 'ORDER', targetId: orderId, details: `${orderId} · ${order.status} → ${String(status)}` });
 
     broadcastRestaurantEvent(rid, 'order:updated', { orderId, status });
     broadcastOrderTrackerEvent(orderId, 'order:updated', { orderId, status });
