@@ -669,7 +669,10 @@ export class RestaurantRepository extends BaseRepository {
     const db = getDb();
     return db
       .prepare(
-        'SELECT id, reference, amount_xof FROM payments WHERE restaurant_id = ? AND idempotency_key = ?',
+        `SELECT p.id, p.order_id as orderId, p.amount_xof as amountXof,
+                p.method, p.mode, p.reference, p.status, o.status as orderStatus
+         FROM payments p JOIN orders o ON o.id = p.order_id
+         WHERE p.restaurant_id = ? AND p.idempotency_key = ?`,
       )
       .get(rid, key);
   }
