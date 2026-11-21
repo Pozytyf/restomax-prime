@@ -467,11 +467,19 @@ export class PostgresRestaurantRepository {
   }
 
   async createExpense(params: { rid: string; category: string; description: string;
-    amountXof: number; expenseDate?: string }) {
+    amountXof: number; expenseDate?: string; actorUserId: string; actorEmail: string; actorRole: string }) {
     const id = generateId('exp'); const now = new Date().toISOString();
-    await this.db('expenses').insert({ id, restaurant_id: params.rid, category: params.category,
-      description: params.description, amount_xof: params.amountXof,
-      expense_date: params.expenseDate || now, created_at: now });
+    await this.db.transaction(async trx => {
+      await trx('expenses').insert({ id, restaurant_id: params.rid, category: params.category,
+        description: params.description, amount_xof: params.amountXof,
+        expense_date: params.expenseDate || now, created_at: now,
+        created_by_user_id: params.actorUserId, created_by_email: params.actorEmail,
+        created_by_role: params.actorRole });
+      await this.recordAudit({ actorUserId: params.actorUserId, actorEmail: params.actorEmail,
+        actorRole: params.actorRole, restaurantId: params.rid, action: 'EXPENSE_CREATED',
+        targetType: 'EXPENSE', targetId: id,
+        details: `${params.amountXof} FCFA · ${params.category} · ${params.description}` }, trx);
+    });
     return id;
   }
 
